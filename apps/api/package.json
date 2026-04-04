@@ -1,0 +1,19 @@
+{
+  "name": "@todolist/api",
+  "version": "0.1.0",
+  "description": "TodoList API service",
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "prisma:format": "prisma format",
+    "prisma:validate": "prisma validate"
+  },
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "dotenv": "^16.6.1",
+    "prisma": "^7.6.0"
+  },
+  "private": true,
+  "dependencies": {
+    "@prisma/client": "^7.6.0"
+  }
+}
