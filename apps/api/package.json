@@ -10,15 +10,21 @@
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo api tests pending"
+    "test": "jest --config jest.config.cjs --runInBand"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
+    "@nestjs/testing": "^11.1.18",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.5.2",
     "@types/passport-github2": "^1.2.9",
     "@types/passport-oauth2": "^1.8.0",
+    "@types/supertest": "^7.2.0",
     "dotenv": "^16.6.1",
+    "jest": "^30.3.0",
     "prisma": "^7.6.0",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
