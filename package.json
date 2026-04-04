@@ -7,9 +7,10 @@
     "test": "turbo run test",
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint && eslint .",
     "typecheck": "turbo run typecheck",
-    "format": "turbo run format"
+    "format": "prettier --write .",
+    "lint:staged": "lint-staged"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +18,11 @@
   "private": true,
   "packageManager": "pnpm@9.15.2",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.0",
+    "globals": "^17.4.0",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
     "turbo": "^2.9.3"
   }
 }
