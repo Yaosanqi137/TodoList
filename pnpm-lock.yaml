@@ -43,12 +43,12 @@ importers:
       "@nestjs/jwt":
         specifier: ^11.0.2
         version: 11.0.2(@nestjs/common@11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))
-      "@nestjs/passport":
-        specifier: ^11.0.5
-        version: 11.0.5(@nestjs/common@11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(passport@0.7.0)
       "@nestjs/platform-express":
         specifier: ^11.1.18
         version: 11.1.18(@nestjs/common@11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.18)
+      "@otplib/preset-default":
+        specifier: ^12.0.1
+        version: 12.0.1
       "@prisma/client":
         specifier: ^7.6.0
         version: 7.6.0(prisma@7.6.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(typescript@5.9.3)
@@ -58,15 +58,9 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
-      passport:
-        specifier: ^0.7.0
-        version: 0.7.0
-      passport-github2:
-        specifier: ^0.1.12
-        version: 0.1.12
-      passport-oauth2:
-        specifier: ^1.8.0
-        version: 1.8.0
+      otplib:
+        specifier: ^13.4.0
+        version: 13.4.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -77,6 +71,12 @@ importers:
       "@types/node":
         specifier: ^25.5.2
         version: 25.5.2
+      "@types/passport-github2":
+        specifier: ^1.2.9
+        version: 1.2.9
+      "@types/passport-oauth2":
+        specifier: ^1.8.0
+        version: 1.8.0
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -332,15 +332,6 @@ packages:
     peerDependencies:
       "@nestjs/common": ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0
 
-  "@nestjs/passport@11.0.5":
-    resolution:
-      {
-        integrity: sha512-ulQX6mbjlws92PIM15Naes4F4p2JoxGnIJuUsdXQPT+Oo2sqQmENEZXM7eYuimocfHnKlcfZOuyzbA33LwUlOQ==
-      }
-    peerDependencies:
-      "@nestjs/common": ^10.0.0 || ^11.0.0
-      passport: ^0.5.0 || ^0.6.0 || ^0.7.0
-
   "@nestjs/platform-express@11.1.18":
     resolution:
       {
@@ -350,6 +341,13 @@ packages:
       "@nestjs/common": ^11.0.0
       "@nestjs/core": ^11.0.0
 
+  "@noble/hashes@2.0.1":
+    resolution:
+      {
+        integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==
+      }
+    engines: { node: ">= 20.19.0" }
+
   "@nuxt/opencollective@0.4.1":
     resolution:
       {
@@ -357,6 +355,69 @@ packages:
       }
     engines: { node: ^14.18.0 || >=16.10.0, npm: ">=5.10.0" }
     hasBin: true
+
+  "@otplib/core@12.0.1":
+    resolution:
+      {
+        integrity: sha512-4sGntwbA/AC+SbPhbsziRiD+jNDdIzsZ3JUyfZwjtKyc/wufl1pnSIaG4Uqx8ymPagujub0o92kgBnB89cuAMA==
+      }
+
+  "@otplib/core@13.4.0":
+    resolution:
+      {
+        integrity: sha512-JqOGcvZQi2wIkEQo8f3/iAjstavpXy6gouIDMHygjNuH6Q0FjbHOiXMdcE94RwfgDNMABhzwUmvaPsxvgm9NYw==
+      }
+
+  "@otplib/hotp@13.4.0":
+    resolution:
+      {
+        integrity: sha512-MJjE0x06mn2ptymz5qZmQveb+vWFuaIftqE0b5/TZZqUOK7l97cV8lRTmid5BpAQMwJDNLW6RnYxGeCRiNdekw==
+      }
+
+  "@otplib/plugin-base32-scure@13.4.0":
+    resolution:
+      {
+        integrity: sha512-/t9YWJmMbB8bF5z8mXrBZc2FXBe8B/3hG5FhWr9K8cFwFhyxScbPysmZe8s1UTzSA6N+s8Uv8aIfCtVXPNjJWw==
+      }
+
+  "@otplib/plugin-crypto-noble@13.4.0":
+    resolution:
+      {
+        integrity: sha512-KrvE4m7Zv+TT1944HzgqFJWJpKb6AyoxDbvhPStmBqdMlv5Gekb80d66cuFRL08kkPgJ5gXUSb5SFpYeB+bACg==
+      }
+
+  "@otplib/plugin-crypto@12.0.1":
+    resolution:
+      {
+        integrity: sha512-qPuhN3QrT7ZZLcLCyKOSNhuijUi9G5guMRVrxq63r9YNOxxQjPm59gVxLM+7xGnHnM6cimY57tuKsjK7y9LM1g==
+      }
+    deprecated: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+
+  "@otplib/plugin-thirty-two@12.0.1":
+    resolution:
+      {
+        integrity: sha512-MtT+uqRso909UkbrrYpJ6XFjj9D+x2Py7KjTO9JDPhL0bJUYVu5kFP4TFZW4NFAywrAtFRxOVY261u0qwb93gA==
+      }
+    deprecated: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+
+  "@otplib/preset-default@12.0.1":
+    resolution:
+      {
+        integrity: sha512-xf1v9oOJRyXfluBhMdpOkr+bsE+Irt+0D5uHtvg6x1eosfmHCsCC6ej/m7FXiWqdo0+ZUI6xSKDhJwc8yfiOPQ==
+      }
+    deprecated: Please upgrade to v13 of otplib. Refer to otplib docs for migration paths
+
+  "@otplib/totp@13.4.0":
+    resolution:
+      {
+        integrity: sha512-dK+vl0f0ekzf6mCENRI9AKS2NJUC7OjI3+X8e7QSnhQ2WM7I+i4PGpb3QxKi5hxjTtwVuoZwXR2CFtXdcRtNdQ==
+      }
+
+  "@otplib/uri@13.4.0":
+    resolution:
+      {
+        integrity: sha512-x1ozBa5bPbdZCrrTL/HK21qchiK7jYElTu+0ft22abeEhiLYgH1+SIULvOcVk3CK8YwF4kdcidvkq4ciejucJA==
+      }
 
   "@prisma/client-runtime-utils@7.6.0":
     resolution:
@@ -555,6 +616,12 @@ packages:
       "@types/react":
         optional: true
 
+  "@scure/base@2.0.0":
+    resolution:
+      {
+        integrity: sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w==
+      }
+
   "@standard-schema/spec@1.1.0":
     resolution:
       {
@@ -646,6 +713,18 @@ packages:
     cpu: [arm64]
     os: [win32]
 
+  "@types/body-parser@1.19.6":
+    resolution:
+      {
+        integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==
+      }
+
+  "@types/connect@3.4.38":
+    resolution:
+      {
+        integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==
+      }
+
   "@types/esrecurse@4.3.1":
     resolution:
       {
@@ -656,6 +735,24 @@ packages:
     resolution:
       {
         integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==
+      }
+
+  "@types/express-serve-static-core@5.1.1":
+    resolution:
+      {
+        integrity: sha512-v4zIMr/cX7/d2BpAEX3KNKL/JrT1s43s96lLvvdTmza1oEvDudCqK9aF/djc/SWgy8Yh0h30TZx5VpzqFCxk5A==
+      }
+
+  "@types/express@5.0.6":
+    resolution:
+      {
+        integrity: sha512-sKYVuV7Sv9fbPIt/442koC7+IIwK5olP1KWeD88e/idgoJqDm3JV/YUiPwkoKK92ylff2MGxSz1CSjsXelx0YA==
+      }
+
+  "@types/http-errors@2.0.5":
+    resolution:
+      {
+        integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==
       }
 
   "@types/json-schema@7.0.15":
@@ -682,10 +779,58 @@ packages:
         integrity: sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg==
       }
 
+  "@types/oauth@0.9.6":
+    resolution:
+      {
+        integrity: sha512-H9TRCVKBNOhZZmyHLqFt9drPM9l+ShWiqqJijU1B8P3DX3ub84NjxDuy+Hjrz+fEca5Kwip3qPMKNyiLgNJtIA==
+      }
+
+  "@types/passport-github2@1.2.9":
+    resolution:
+      {
+        integrity: sha512-/nMfiPK2E6GKttwBzwj0Wjaot8eHrM57hnWxu52o6becr5/kXlH/4yE2v2rh234WGvSgEEzIII02Nc5oC5xEHA==
+      }
+
+  "@types/passport-oauth2@1.8.0":
+    resolution:
+      {
+        integrity: sha512-6//z+4orIOy/g3zx17HyQ71GSRK4bs7Sb+zFasRoc2xzlv7ZCJ+vkDBYFci8U6HY+or6Zy7ajf4mz4rK7nsWJQ==
+      }
+
+  "@types/passport@1.0.17":
+    resolution:
+      {
+        integrity: sha512-aciLyx+wDwT2t2/kJGJR2AEeBz0nJU4WuRX04Wu9Dqc5lSUtwu0WERPHYsLhF9PtseiAMPBGNUOtFjxZ56prsg==
+      }
+
+  "@types/qs@6.15.0":
+    resolution:
+      {
+        integrity: sha512-JawvT8iBVWpzTrz3EGw9BTQFg3BQNmwERdKE22vlTxawwtbyUSlMppvZYKLZzB5zgACXdXxbD3m1bXaMqP/9ow==
+      }
+
+  "@types/range-parser@1.2.7":
+    resolution:
+      {
+        integrity: sha512-hKormJbkJqzQGhziax5PItDUTMAM9uE2XXQmM37dyd4hVM+5aVl7oVxMVUiVQn2oCQFN/LKCZdvSM0pFRqbSmQ==
+      }
+
   "@types/react@19.2.14":
     resolution:
       {
         integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==
+      }
+
+  "@types/send@1.2.1":
+    resolution:
+      {
+        integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==
+      }
+
+  "@types/serve-static@2.2.0":
+    resolution:
+      {
+        integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==
       }
 
   "@types/strip-bom@3.0.0":
@@ -807,13 +952,6 @@ packages:
         integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==
       }
     engines: { node: 18 || 20 || >=22 }
-
-  base64url@3.0.1:
-    resolution:
-      {
-        integrity: sha512-ir1UPr3dkwexU7FdV8qBBbNDRUhMmIekYMFZfi+C/sLNnRESKPl23nB9b2pltqfOQNnGzsDdId90AEtG5tCx4A==
-      }
-    engines: { node: ">=6.0.0" }
 
   better-result@2.7.0:
     resolution:
@@ -2030,12 +2168,6 @@ packages:
     engines: { node: ">=18" }
     hasBin: true
 
-  oauth@0.10.2:
-    resolution:
-      {
-        integrity: sha512-JtFnB+8nxDEXgNyniwz573xxbKSOu3R8D40xQKqcjwJ2CDkYqUDI53o6IuzDJBx60Z8VKCm271+t8iFjakrl8Q==
-      }
-
   object-assign@4.1.1:
     resolution:
       {
@@ -2083,6 +2215,12 @@ packages:
       }
     engines: { node: ">= 0.8.0" }
 
+  otplib@13.4.0:
+    resolution:
+      {
+        integrity: sha512-RUcYcRMCgRWhUE/XabRppXpUwCwaWBNHe5iPXhdvP8wwDGpGpsIf/kxX/ec3zFsOaM1Oq8lEhUqDwk6W7DHkwg==
+      }
+
   p-limit@3.1.0:
     resolution:
       {
@@ -2103,34 +2241,6 @@ packages:
         integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==
       }
     engines: { node: ">= 0.8" }
-
-  passport-github2@0.1.12:
-    resolution:
-      {
-        integrity: sha512-3nPUCc7ttF/3HSP/k9sAXjz3SkGv5Nki84I05kSQPo01Jqq1NzJACgMblCK0fGcv9pKCG/KXU3AJRDGLqHLoIw==
-      }
-    engines: { node: ">= 0.8.0" }
-
-  passport-oauth2@1.8.0:
-    resolution:
-      {
-        integrity: sha512-cjsQbOrXIDE4P8nNb3FQRCCmJJ/utnFKEz2NX209f7KOHPoX18gF7gBzBbLLsj2/je4KrgiwLLGjf0lm9rtTBA==
-      }
-    engines: { node: ">= 0.4.0" }
-
-  passport-strategy@1.0.0:
-    resolution:
-      {
-        integrity: sha512-CB97UUvDKJde2V0KDWWB3lyf6PC3FaZP7YxZ2G8OAtn9p4HI9j9JLP9qjOGZFvyl8uwNT8qM+hGnz/n16NI7oA==
-      }
-    engines: { node: ">= 0.4.0" }
-
-  passport@0.7.0:
-    resolution:
-      {
-        integrity: sha512-cPLl+qZpSc+ireUvt+IzqbED1cHHkDoVYMo30jbJIdOOjQ1MQYZBPiNvmi8UM6lJuOpTPXJGZQk0DtC4y61MYQ==
-      }
-    engines: { node: ">= 0.4.0" }
 
   path-exists@4.0.0:
     resolution:
@@ -2169,12 +2279,6 @@ packages:
     resolution:
       {
         integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==
-      }
-
-  pause@0.0.1:
-    resolution:
-      {
-        integrity: sha512-KG8UEiEVkR3wGEb4m5yZkVCzigAD+cVEJck2CzYZO37ZGJfctvVptVO192MwrtPhzONn6go8ylnOdMhKqi4nfg==
       }
 
   perfect-debounce@1.0.0:
@@ -2633,6 +2737,13 @@ packages:
       }
     engines: { node: ">= 0.4" }
 
+  thirty-two@1.0.2:
+    resolution:
+      {
+        integrity: sha512-OEI0IWCe+Dw46019YLl6V10Us5bi574EvlJEOcAkB29IzQ/mYD1A6RyNHLjZPiHCmuodxvgF6U+vZO1L15lxVA==
+      }
+    engines: { node: ">=0.2.6" }
+
   tinyexec@1.0.4:
     resolution:
       {
@@ -2753,12 +2864,6 @@ packages:
     engines: { node: ">=14.17" }
     hasBin: true
 
-  uid2@0.0.4:
-    resolution:
-      {
-        integrity: sha512-IevTus0SbGwQzYh3+fRsAMTVVPOoIVufzacXcHPmdlle1jUpq7BRL+mw3dgeLanvGZdwwbWhRV6XrcFNdBmjWA==
-      }
-
   uid@2.0.2:
     resolution:
       {
@@ -2797,13 +2902,6 @@ packages:
       {
         integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==
       }
-
-  utils-merge@1.0.1:
-    resolution:
-      {
-        integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==
-      }
-    engines: { node: ">= 0.4.0" }
 
   v8-compile-cache-lib@3.0.1:
     resolution:
@@ -3032,11 +3130,6 @@ snapshots:
       "@types/jsonwebtoken": 9.0.10
       jsonwebtoken: 9.0.3
 
-  "@nestjs/passport@11.0.5(@nestjs/common@11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(passport@0.7.0)":
-    dependencies:
-      "@nestjs/common": 11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      passport: 0.7.0
-
   "@nestjs/platform-express@11.1.18(@nestjs/common@11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.18)":
     dependencies:
       "@nestjs/common": 11.1.18(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -3049,9 +3142,55 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  "@noble/hashes@2.0.1": {}
+
   "@nuxt/opencollective@0.4.1":
     dependencies:
       consola: 3.4.2
+
+  "@otplib/core@12.0.1": {}
+
+  "@otplib/core@13.4.0": {}
+
+  "@otplib/hotp@13.4.0":
+    dependencies:
+      "@otplib/core": 13.4.0
+      "@otplib/uri": 13.4.0
+
+  "@otplib/plugin-base32-scure@13.4.0":
+    dependencies:
+      "@otplib/core": 13.4.0
+      "@scure/base": 2.0.0
+
+  "@otplib/plugin-crypto-noble@13.4.0":
+    dependencies:
+      "@noble/hashes": 2.0.1
+      "@otplib/core": 13.4.0
+
+  "@otplib/plugin-crypto@12.0.1":
+    dependencies:
+      "@otplib/core": 12.0.1
+
+  "@otplib/plugin-thirty-two@12.0.1":
+    dependencies:
+      "@otplib/core": 12.0.1
+      thirty-two: 1.0.2
+
+  "@otplib/preset-default@12.0.1":
+    dependencies:
+      "@otplib/core": 12.0.1
+      "@otplib/plugin-crypto": 12.0.1
+      "@otplib/plugin-thirty-two": 12.0.1
+
+  "@otplib/totp@13.4.0":
+    dependencies:
+      "@otplib/core": 13.4.0
+      "@otplib/hotp": 13.4.0
+      "@otplib/uri": 13.4.0
+
+  "@otplib/uri@13.4.0":
+    dependencies:
+      "@otplib/core": 13.4.0
 
   "@prisma/client-runtime-utils@7.6.0": {}
 
@@ -3193,6 +3332,8 @@ snapshots:
     optionalDependencies:
       "@types/react": 19.2.14
 
+  "@scure/base@2.0.0": {}
+
   "@standard-schema/spec@1.1.0": {}
 
   "@tokenizer/inflate@0.4.1":
@@ -3230,9 +3371,33 @@ snapshots:
   "@turbo/windows-arm64@2.9.3":
     optional: true
 
+  "@types/body-parser@1.19.6":
+    dependencies:
+      "@types/connect": 3.4.38
+      "@types/node": 25.5.2
+
+  "@types/connect@3.4.38":
+    dependencies:
+      "@types/node": 25.5.2
+
   "@types/esrecurse@4.3.1": {}
 
   "@types/estree@1.0.8": {}
+
+  "@types/express-serve-static-core@5.1.1":
+    dependencies:
+      "@types/node": 25.5.2
+      "@types/qs": 6.15.0
+      "@types/range-parser": 1.2.7
+      "@types/send": 1.2.1
+
+  "@types/express@5.0.6":
+    dependencies:
+      "@types/body-parser": 1.19.6
+      "@types/express-serve-static-core": 5.1.1
+      "@types/serve-static": 2.2.0
+
+  "@types/http-errors@2.0.5": {}
 
   "@types/json-schema@7.0.15": {}
 
@@ -3247,9 +3412,42 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  "@types/oauth@0.9.6":
+    dependencies:
+      "@types/node": 25.5.2
+
+  "@types/passport-github2@1.2.9":
+    dependencies:
+      "@types/express": 5.0.6
+      "@types/passport": 1.0.17
+      "@types/passport-oauth2": 1.8.0
+
+  "@types/passport-oauth2@1.8.0":
+    dependencies:
+      "@types/express": 5.0.6
+      "@types/oauth": 0.9.6
+      "@types/passport": 1.0.17
+
+  "@types/passport@1.0.17":
+    dependencies:
+      "@types/express": 5.0.6
+
+  "@types/qs@6.15.0": {}
+
+  "@types/range-parser@1.2.7": {}
+
   "@types/react@19.2.14":
     dependencies:
       csstype: 3.2.3
+
+  "@types/send@1.2.1":
+    dependencies:
+      "@types/node": 25.5.2
+
+  "@types/serve-static@2.2.0":
+    dependencies:
+      "@types/http-errors": 2.0.5
+      "@types/node": 25.5.2
 
   "@types/strip-bom@3.0.0": {}
 
@@ -3308,8 +3506,6 @@ snapshots:
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
-
-  base64url@3.0.1: {}
 
   better-result@2.7.0:
     dependencies:
@@ -4007,8 +4203,6 @@ snapshots:
       pathe: 2.0.3
       tinyexec: 1.0.4
 
-  oauth@0.10.2: {}
-
   object-assign@4.1.1: {}
 
   object-inspect@1.13.4: {}
@@ -4036,6 +4230,15 @@ snapshots:
       type-check: 0.4.0
       word-wrap: 1.2.5
 
+  otplib@13.4.0:
+    dependencies:
+      "@otplib/core": 13.4.0
+      "@otplib/hotp": 13.4.0
+      "@otplib/plugin-base32-scure": 13.4.0
+      "@otplib/plugin-crypto-noble": 13.4.0
+      "@otplib/totp": 13.4.0
+      "@otplib/uri": 13.4.0
+
   p-limit@3.1.0:
     dependencies:
       yocto-queue: 0.1.0
@@ -4045,26 +4248,6 @@ snapshots:
       p-limit: 3.1.0
 
   parseurl@1.3.3: {}
-
-  passport-github2@0.1.12:
-    dependencies:
-      passport-oauth2: 1.8.0
-
-  passport-oauth2@1.8.0:
-    dependencies:
-      base64url: 3.0.1
-      oauth: 0.10.2
-      passport-strategy: 1.0.0
-      uid2: 0.0.4
-      utils-merge: 1.0.1
-
-  passport-strategy@1.0.0: {}
-
-  passport@0.7.0:
-    dependencies:
-      passport-strategy: 1.0.0
-      pause: 0.0.1
-      utils-merge: 1.0.1
 
   path-exists@4.0.0: {}
 
@@ -4077,8 +4260,6 @@ snapshots:
   path-to-regexp@8.4.2: {}
 
   pathe@2.0.3: {}
-
-  pause@0.0.1: {}
 
   perfect-debounce@1.0.0: {}
 
@@ -4341,6 +4522,8 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
+  thirty-two@1.0.2: {}
+
   tinyexec@1.0.4: {}
 
   to-regex-range@5.0.1:
@@ -4430,8 +4613,6 @@ snapshots:
 
   typescript@5.9.3: {}
 
-  uid2@0.0.4: {}
-
   uid@2.0.2:
     dependencies:
       "@lukeed/csprng": 1.1.0
@@ -4447,8 +4628,6 @@ snapshots:
       punycode: 2.3.1
 
   util-deprecate@1.0.2: {}
-
-  utils-merge@1.0.1: {}
 
   v8-compile-cache-lib@3.0.1: {}
 

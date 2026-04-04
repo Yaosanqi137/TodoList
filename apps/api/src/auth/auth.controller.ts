@@ -4,6 +4,8 @@ import { AuthService } from "./auth.service";
 import { EmailLoginDto } from "./dto/email-login.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
 import { SendEmailCodeDto } from "./dto/send-email-code.dto";
+import { TwoFactorEnrollDto } from "./dto/two-factor-enroll.dto";
+import { TwoFactorVerifyDto } from "./dto/two-factor-verify.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -43,6 +45,23 @@ export class AuthController {
   @Post("token/revoke")
   async revokeRefreshToken(@Body() body: RefreshTokenDto): Promise<{ success: boolean }> {
     return this.authService.revokeRefreshToken(body.refreshToken);
+  }
+
+  @Post("2fa/enroll")
+  async enrollTwoFactor(@Body() body: TwoFactorEnrollDto): Promise<{
+    userId: string;
+    secret: string;
+    otpauthUrl: string;
+    enabled: boolean;
+  }> {
+    return this.authService.enrollTwoFactor(body.email);
+  }
+
+  @Post("2fa/verify")
+  async verifyTwoFactor(
+    @Body() body: TwoFactorVerifyDto
+  ): Promise<{ success: boolean; enabled: boolean }> {
+    return this.authService.verifyTwoFactor(body.email, body.token);
   }
 
   @Get("oauth/github")

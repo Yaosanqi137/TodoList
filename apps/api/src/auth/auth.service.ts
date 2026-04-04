@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { randomUUID } from "node:crypto";
+import { authenticator } from "@otplib/preset-default";
 
 type EmailCodeEntry = {
   code: string;
@@ -19,6 +20,11 @@ type RefreshTokenEntry = {
   revokedAt?: number;
 };
 
+type TwoFactorEntry = {
+  secret: string;
+  enabled: boolean;
+};
+
 type AuthTokenResult = {
   accessToken: string;
   tokenType: "Bearer";
@@ -34,6 +40,7 @@ export class AuthService {
   private readonly userStoreByEmail = new Map<string, AuthUser>();
   private readonly userStoreById = new Map<string, AuthUser>();
   private readonly refreshTokenStore = new Map<string, RefreshTokenEntry>();
+  private readonly twoFactorStore = new Map<string, TwoFactorEntry>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -109,6 +116,49 @@ export class AuthService {
 
     entry.revokedAt = Date.now();
     return { success: true };
+  }
+
+  async enrollTwoFactor(
+    email: string
+  ): Promise<{ userId: string; secret: string; otpauthUrl: string; enabled: boolean }> {
+    const user = this.getOrCreateUser(email.toLowerCase());
+    const secret = authenticator.generateSecret();
+    const issuer = this.configService.get<string>("AUTH_TOTP_ISSUER") ?? "TodoList";
+    const otpauthUrl = authenticator.keyuri(user.email, issuer, secret);
+
+    this.twoFactorStore.set(user.id, {
+      secret,
+      enabled: false
+    });
+
+    return {
+      userId: user.id,
+      secret,
+      otpauthUrl,
+      enabled: false
+    };
+  }
+
+  async verifyTwoFactor(
+    email: string,
+    token: string
+  ): Promise<{ success: boolean; enabled: boolean }> {
+    const user = this.getOrCreateUser(email.toLowerCase());
+    const entry = this.twoFactorStore.get(user.id);
+    if (!entry) {
+      throw new UnauthorizedException("尚未启用两步验证");
+    }
+
+    const valid = authenticator.check(token, entry.secret);
+    if (!valid) {
+      throw new UnauthorizedException("两步验证码错误");
+    }
+
+    entry.enabled = true;
+    return {
+      success: true,
+      enabled: true
+    };
   }
 
   private getOrCreateUser(email: string): AuthUser {
