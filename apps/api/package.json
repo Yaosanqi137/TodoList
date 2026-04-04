@@ -5,16 +5,37 @@
   "scripts": {
     "prisma:generate": "prisma generate",
     "prisma:format": "prisma format",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo api tests pending"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "@types/passport-github2": "^1.2.9",
+    "@types/passport-oauth2": "^1.8.0",
     "dotenv": "^16.6.1",
-    "prisma": "^7.6.0"
+    "prisma": "^7.6.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
   },
   "private": true,
   "dependencies": {
-    "@prisma/client": "^7.6.0"
+    "@nestjs/common": "^11.1.18",
+    "@nestjs/config": "^4.0.3",
+    "@nestjs/core": "^11.1.18",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "^11.1.18",
+    "@otplib/preset-default": "^12.0.1",
+    "@prisma/client": "^7.6.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "otplib": "^13.4.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
   }
 }
