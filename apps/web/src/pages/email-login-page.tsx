@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { loginWithEmailCode, sendEmailCode, type EmailLoginResult } from "@/services/auth-api";
@@ -6,6 +6,17 @@ import { loginWithEmailCode, sendEmailCode, type EmailLoginResult } from "@/serv
 type EmailLoginPageProps = {
   onLoginSuccess: (payload: EmailLoginResult) => void;
 };
+
+const DEFAULT_API_BASE_URL = "http://localhost:3000";
+
+function resolveApiBaseUrl(): string {
+  const envBaseUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (!envBaseUrl) {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  return envBaseUrl.replace(/\/+$/, "");
+}
 
 export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
   const [email, setEmail] = useState("");
@@ -35,7 +46,7 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
       setError(null);
       setMessage(null);
       const result = await sendEmailCode(email.trim());
-      setMessage(`验证码已发送，有效期 ${result.expiresInSeconds} 秒`);
+      setMessage(`验证码已发送，有效期 ${result.expiresInSeconds} 秒。`);
 
       let remain = 60;
       setCodeCooldown(remain);
@@ -75,7 +86,9 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
   return (
     <div className="mx-auto w-full max-w-md rounded-xl border border-[#d7e2db] bg-white p-6 shadow-sm">
       <h1 className="text-2xl font-semibold text-[#122117]">邮箱验证码登录</h1>
-      <p className="mt-2 text-sm text-[#3a5a4a]">输入邮箱后获取验证码，再完成登录。</p>
+      <p className="mt-2 text-sm text-[#3a5a4a]">
+        输入邮箱后获取验证码，再完成登录。你也可以直接使用第三方账号登录。
+      </p>
 
       <form className="mt-6 space-y-3" onSubmit={handleSendCode}>
         <label className="block text-sm font-medium text-[#244236]" htmlFor="email">
@@ -90,11 +103,7 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
           onChange={(event) => setEmail(event.target.value)}
         />
         <Button type="submit" disabled={!canSendCode} className="w-full">
-          {sendingCode
-            ? "发送中..."
-            : codeCooldown > 0
-              ? `${codeCooldown}s 后可重发`
-              : "发送验证码"}
+          {sendingCode ? "发送中..." : codeCooldown > 0 ? `${codeCooldown} 秒后重发` : "发送验证码"}
         </Button>
       </form>
 
@@ -120,6 +129,24 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
           {loggingIn ? "登录中..." : "立即登录"}
         </Button>
       </form>
+
+      <div className="mt-6 grid grid-cols-1 gap-2">
+        <a href={`${resolveApiBaseUrl()}/auth/oauth/github`}>
+          <Button type="button" variant="outline" className="w-full">
+            使用 GitHub 登录
+          </Button>
+        </a>
+        <a href={`${resolveApiBaseUrl()}/auth/oauth/qq`}>
+          <Button type="button" variant="outline" className="w-full">
+            使用 QQ 登录
+          </Button>
+        </a>
+        <a href={`${resolveApiBaseUrl()}/auth/oauth/wechat`}>
+          <Button type="button" variant="outline" className="w-full">
+            使用微信登录
+          </Button>
+        </a>
+      </div>
 
       {message ? <p className="mt-4 text-sm text-[#0a7a5a]">{message}</p> : null}
       {error ? <p className="mt-2 text-sm text-[#b42318]">{error}</p> : null}

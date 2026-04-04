@@ -1,11 +1,24 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { EmailLoginPage } from "@/pages/email-login-page";
+import { OAuthCallbackPage } from "@/pages/oauth-callback-page";
 import { TodoShellPage } from "@/pages/todo-shell-page";
 import type { EmailLoginResult } from "@/services/auth-api";
+import { loadSession, saveSession, type WebSession } from "@/services/session-storage";
+
+function toWebSession(payload: EmailLoginResult): WebSession {
+  return {
+    accessToken: payload.accessToken,
+    refreshToken: payload.refreshToken,
+    user: {
+      id: payload.user.id,
+      email: payload.user.email
+    }
+  };
+}
 
 function App() {
-  const [session, setSession] = useState<EmailLoginResult | null>(null);
+  const [session, setSession] = useState<WebSession | null>(() => loadSession());
   const navigate = useNavigate();
 
   return (
@@ -26,14 +39,31 @@ function App() {
             element={
               <EmailLoginPage
                 onLoginSuccess={(payload) => {
-                  setSession(payload);
+                  const nextSession = toWebSession(payload);
+                  saveSession(nextSession);
+                  setSession(nextSession);
                   navigate("/");
                 }}
               />
             }
           />
-          <Route path="/" element={<TodoShellPage session={session} />} />
-          <Route path="*" element={<Navigate to="/login/email" replace />} />
+          <Route
+            path="/auth/callback/:provider"
+            element={
+              <OAuthCallbackPage
+                onBootstrapSession={(nextSession) => {
+                  setSession(nextSession);
+                }}
+              />
+            }
+          />
+          <Route
+            path="/"
+            element={
+              session ? <TodoShellPage session={session} /> : <Navigate to="/login/email" replace />
+            }
+          />
+          <Route path="*" element={<Navigate to={session ? "/" : "/login/email"} replace />} />
         </Routes>
       </main>
     </div>
