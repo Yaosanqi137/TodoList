@@ -9,6 +9,7 @@
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
+    "@types/node": "^25.5.2",
     "dotenv": "^16.6.1",
     "prisma": "^7.6.0"
   },
