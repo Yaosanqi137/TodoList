@@ -11,3 +11,75 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  BANNED
+}
+
+enum AuthProvider {
+  EMAIL
+  GITHUB
+  QQ
+  WECHAT
+}
+
+model User {
+  id                    String         @id @default(cuid())
+  email                 String         @unique
+  nickname              String?
+  avatarUrl             String?
+  status                UserStatus     @default(ACTIVE)
+  defaultStorageQuotaMb Int            @default(100)
+  usedStorageBytes      BigInt         @default(0)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  identities            AuthIdentity[]
+  refreshTokens         RefreshToken[]
+  security              UserSecurity?
+
+  @@map("users")
+}
+
+model AuthIdentity {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("auth_identities")
+}
+
+model UserSecurity {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  twoFactorEnabled Boolean  @default(false)
+  twoFactorSecret  String?
+  recoveryCodes    String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_security")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  deviceId  String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}
