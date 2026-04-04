@@ -13,10 +13,27 @@ type AuthUser = {
   email: string;
 };
 
+type RefreshTokenEntry = {
+  userId: string;
+  expiresAt: number;
+  revokedAt?: number;
+};
+
+type AuthTokenResult = {
+  accessToken: string;
+  tokenType: "Bearer";
+  expiresInSeconds: number;
+  refreshToken: string;
+  refreshExpiresInSeconds: number;
+  user: AuthUser;
+};
+
 @Injectable()
 export class AuthService {
   private readonly emailCodeStore = new Map<string, EmailCodeEntry>();
-  private readonly userStore = new Map<string, AuthUser>();
+  private readonly userStoreByEmail = new Map<string, AuthUser>();
+  private readonly userStoreById = new Map<string, AuthUser>();
+  private readonly refreshTokenStore = new Map<string, RefreshTokenEntry>();
 
   constructor(
     private readonly configService: ConfigService,
@@ -39,15 +56,7 @@ export class AuthService {
     };
   }
 
-  async loginWithEmailCode(
-    email: string,
-    code: string
-  ): Promise<{
-    accessToken: string;
-    tokenType: "Bearer";
-    expiresInSeconds: number;
-    user: AuthUser;
-  }> {
+  async loginWithEmailCode(email: string, code: string): Promise<AuthTokenResult> {
     const lowerEmail = email.toLowerCase();
     const codeEntry = this.emailCodeStore.get(lowerEmail);
 
@@ -67,24 +76,43 @@ export class AuthService {
     this.emailCodeStore.delete(lowerEmail);
 
     const user = this.getOrCreateUser(lowerEmail);
-    const expiresInSeconds = Number(
-      this.configService.get("AUTH_ACCESS_EXPIRES_IN_SECONDS") ?? 900
-    );
-    const accessToken = await this.jwtService.signAsync({
-      sub: user.id,
-      email: user.email
-    });
+    return this.issueTokens(user);
+  }
 
-    return {
-      accessToken,
-      tokenType: "Bearer",
-      expiresInSeconds,
-      user
-    };
+  async refreshTokens(refreshToken: string): Promise<AuthTokenResult> {
+    const entry = this.refreshTokenStore.get(refreshToken);
+    if (!entry) {
+      throw new UnauthorizedException("刷新令牌不存在");
+    }
+    if (entry.revokedAt) {
+      throw new UnauthorizedException("刷新令牌已注销");
+    }
+    if (entry.expiresAt < Date.now()) {
+      this.refreshTokenStore.delete(refreshToken);
+      throw new UnauthorizedException("刷新令牌已过期");
+    }
+
+    const user = this.userStoreById.get(entry.userId);
+    if (!user) {
+      throw new UnauthorizedException("用户不存在");
+    }
+
+    entry.revokedAt = Date.now();
+    return this.issueTokens(user);
+  }
+
+  async revokeRefreshToken(refreshToken: string): Promise<{ success: boolean }> {
+    const entry = this.refreshTokenStore.get(refreshToken);
+    if (!entry) {
+      return { success: true };
+    }
+
+    entry.revokedAt = Date.now();
+    return { success: true };
   }
 
   private getOrCreateUser(email: string): AuthUser {
-    const existingUser = this.userStore.get(email);
+    const existingUser = this.userStoreByEmail.get(email);
     if (existingUser) {
       return existingUser;
     }
@@ -93,12 +121,41 @@ export class AuthService {
       id: randomUUID(),
       email
     };
-    this.userStore.set(email, newUser);
+    this.userStoreByEmail.set(email, newUser);
+    this.userStoreById.set(newUser.id, newUser);
 
     return newUser;
   }
 
   private generateCode(): string {
     return String(Math.floor(100000 + Math.random() * 900000));
+  }
+
+  private async issueTokens(user: AuthUser): Promise<AuthTokenResult> {
+    const accessExpiresInSeconds = Number(
+      this.configService.get("AUTH_ACCESS_EXPIRES_IN_SECONDS") ?? 900
+    );
+    const refreshExpiresInSeconds = Number(
+      this.configService.get("AUTH_REFRESH_EXPIRES_IN_SECONDS") ?? 2592000
+    );
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      email: user.email
+    });
+    const refreshToken = `${randomUUID()}${randomUUID()}`;
+
+    this.refreshTokenStore.set(refreshToken, {
+      userId: user.id,
+      expiresAt: Date.now() + refreshExpiresInSeconds * 1000
+    });
+
+    return {
+      accessToken,
+      tokenType: "Bearer",
+      expiresInSeconds: accessExpiresInSeconds,
+      refreshToken,
+      refreshExpiresInSeconds,
+      user
+    };
   }
 }
