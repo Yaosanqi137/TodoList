@@ -1,0 +1,11 @@
+{
+  "name": "@todolist/eslint-config",
+  "version": "0.1.0",
+  "description": "Shared ESLint config presets for TodoList",
+  "main": "base.cjs",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "files": [
+    "base.cjs"
+  ]
+}

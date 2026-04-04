@@ -1,0 +1,12 @@
+{
+  "name": "@todolist/tsconfig",
+  "version": "0.1.0",
+  "description": "Shared TypeScript config presets for TodoList",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "files": [
+    "base.json",
+    "react-app.json",
+    "nest-app.json"
+  ]
+}

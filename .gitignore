@@ -1,2 +1,4 @@
 develop.md
+node_modules/
+.turbo/
 .idea/

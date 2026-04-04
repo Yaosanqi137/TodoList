@@ -1,0 +1,22 @@
+{
+  "name": "todolist",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "turbo run test",
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "turbo run format"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "packageManager": "pnpm@9.15.2",
+  "devDependencies": {
+    "turbo": "^2.9.3"
+  }
+}
