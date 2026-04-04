@@ -1,0 +1,403 @@
+// Prisma 数据模型定义（TodoList）
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  BANNED
+}
+
+enum AuthProvider {
+  EMAIL
+  GITHUB
+  QQ
+  WECHAT
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+
+enum AttachmentType {
+  IMAGE
+  VIDEO
+  FILE
+  LINK
+}
+
+enum AiChannel {
+  USER_KEY
+  ASTRBOT
+  PUBLIC_POOL
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEB_PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
+model User {
+  id                    String              @id @default(cuid())
+  email                 String              @unique
+  nickname              String?
+  avatarUrl             String?
+  status                UserStatus          @default(ACTIVE)
+  defaultStorageQuotaMb Int                 @default(100)
+  usedStorageBytes      BigInt              @default(0)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  identities            AuthIdentity[]
+  refreshTokens         RefreshToken[]
+  security              UserSecurity?
+  tasks                 Task[]
+  tags                  Tag[]
+  attachments           Attachment[]
+  taskActivityLogs      TaskActivityLog[]
+  syncOperations        SyncOperation[]
+  syncCursors           SyncCursor[]
+  taskTombstones        TaskTombstone[]
+  aiProviderBindings    AiProviderBinding[]
+  aiUsageLogs           AiUsageLog[]
+  notificationRules     NotificationRule[]
+  notificationJobs      NotificationJob[]
+  createdAdminTokens    AdminToken[]
+  auditLogs             AuditLog[]
+
+  @@map("users")
+}
+
+model AuthIdentity {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       AuthProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("auth_identities")
+}
+
+model UserSecurity {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  twoFactorEnabled Boolean  @default(false)
+  twoFactorSecret  String?
+  recoveryCodes    String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_security")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  deviceId  String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Task {
+  id                String             @id @default(cuid())
+  userId            String
+  title             String
+  contentJson       Json?
+  contentText       String?
+  priority          TaskPriority       @default(MEDIUM)
+  status            TaskStatus         @default(TODO)
+  ddl               DateTime?
+  completedAt       DateTime?
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskTags          TaskTag[]
+  attachments       Attachment[]
+  activityLogs      TaskActivityLog[]
+  notificationJobs  NotificationJob[]
+  notificationRules NotificationRule[]
+
+  @@index([userId, status])
+  @@index([userId, ddl])
+  @@map("tasks")
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskTags  TaskTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+model TaskTag {
+  taskId    String
+  tagId     String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([tagId])
+  @@map("task_tags")
+}
+
+model Attachment {
+  id         String         @id @default(cuid())
+  userId     String
+  taskId     String?
+  type       AttachmentType
+  url        String
+  mimeType   String?
+  fileName   String?
+  fileSize   Int
+  width      Int?
+  height     Int?
+  durationMs Int?
+  checksum   String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task       Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([taskId])
+  @@map("attachments")
+}
+
+model TaskActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  taskId    String
+  action    String
+  payload   Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([userId, createdAt])
+  @@map("task_activity_logs")
+}
+
+model SyncOperation {
+  id         String   @id @default(cuid())
+  opId       String   @unique
+  userId     String
+  deviceId   String
+  entityType String
+  entityId   String
+  action     String
+  payload    Json?
+  clientTs   DateTime
+  serverTs   DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deviceId, serverTs])
+  @@index([userId, entityType, entityId])
+  @@map("sync_operations")
+}
+
+model SyncCursor {
+  id                    String    @id @default(cuid())
+  userId                String
+  deviceId              String
+  lastPulledAt          DateTime?
+  lastOperationServerTs DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@map("sync_cursors")
+}
+
+model TaskTombstone {
+  id         String   @id @default(cuid())
+  taskId     String   @unique
+  userId     String
+  deletedAt  DateTime @default(now())
+  deleteOpId String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deletedAt])
+  @@map("task_tombstones")
+}
+
+model AiProviderBinding {
+  id              String    @id @default(cuid())
+  userId          String
+  channel         AiChannel
+  providerName    String
+  model           String?
+  encryptedApiKey String?
+  endpoint        String?
+  isDefault       Boolean   @default(false)
+  isEnabled       Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isEnabled])
+  @@map("ai_provider_bindings")
+}
+
+model AiPublicPoolConfig {
+  id              String   @id @default(cuid())
+  enabled         Boolean  @default(false)
+  providerName    String?
+  model           String?
+  encryptedApiKey String?
+  endpoint        String?
+  rpmLimit        Int      @default(60)
+  dailyTokenLimit Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("ai_public_pool_config")
+}
+
+model AiUsageLog {
+  id               String    @id @default(cuid())
+  userId           String?
+  channel          AiChannel
+  providerName     String?
+  model            String?
+  promptTokens     Int       @default(0)
+  completionTokens Int       @default(0)
+  totalTokens      Int       @default(0)
+  latencyMs        Int?
+  success          Boolean   @default(true)
+  errorCode        String?
+  createdAt        DateTime  @default(now())
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([channel, createdAt])
+  @@map("ai_usage_logs")
+}
+
+model NotificationRule {
+  id             String              @id @default(cuid())
+  userId         String
+  taskId         String?
+  channel        NotificationChannel @default(EMAIL)
+  advanceMinutes Int                 @default(60)
+  enabled        Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task           Task?               @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  jobs           NotificationJob[]
+
+  @@index([userId, enabled])
+  @@index([taskId])
+  @@map("notification_rules")
+}
+
+model NotificationJob {
+  id           String              @id @default(cuid())
+  userId       String
+  taskId       String?
+  ruleId       String?
+  channel      NotificationChannel
+  scheduledAt  DateTime
+  sentAt       DateTime?
+  status       NotificationStatus  @default(PENDING)
+  retryCount   Int                 @default(0)
+  errorMessage String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task         Task?               @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  rule         NotificationRule?   @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledAt])
+  @@index([userId, createdAt])
+  @@map("notification_jobs")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model AdminToken {
+  id              String    @id @default(cuid())
+  tokenHash       String    @unique
+  name            String
+  expiresAt       DateTime
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  createdByUserId String?
+  createdByUser   User?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt])
+  @@map("admin_tokens")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  targetType  String
+  targetId    String?
+  meta        Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  actorUser   User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
+}

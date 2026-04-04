@@ -1,0 +1,8 @@
+node_modules
+# 环境变量文件不纳入版本控制
+.env
+
+/generated/prisma
+dist
+prisma.config.js
+prisma.config.js.map
