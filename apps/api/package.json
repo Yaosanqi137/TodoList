@@ -15,6 +15,8 @@
   "license": "GPL-3.0-or-later",
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "@types/passport-github2": "^1.2.9",
+    "@types/passport-oauth2": "^1.8.0",
     "dotenv": "^16.6.1",
     "prisma": "^7.6.0",
     "ts-node": "^10.9.2",

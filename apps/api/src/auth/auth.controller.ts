@@ -1,4 +1,5 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
 import { AuthService } from "./auth.service";
 import { EmailLoginDto } from "./dto/email-login.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
@@ -42,5 +43,59 @@ export class AuthController {
   @Post("token/revoke")
   async revokeRefreshToken(@Body() body: RefreshTokenDto): Promise<{ success: boolean }> {
     return this.authService.revokeRefreshToken(body.refreshToken);
+  }
+
+  @Get("oauth/github")
+  @UseGuards(AuthGuard("github"))
+  githubLogin(): void {}
+
+  @Get("oauth/github/callback")
+  @UseGuards(AuthGuard("github"))
+  githubCallback(@Req() req: { user: unknown }): {
+    success: boolean;
+    provider: "github";
+    profile: unknown;
+  } {
+    return {
+      success: true,
+      provider: "github",
+      profile: req.user
+    };
+  }
+
+  @Get("oauth/qq")
+  @UseGuards(AuthGuard("qq"))
+  qqLogin(): void {}
+
+  @Get("oauth/qq/callback")
+  @UseGuards(AuthGuard("qq"))
+  qqCallback(@Req() req: { user: unknown }): {
+    success: boolean;
+    provider: "qq";
+    profile: unknown;
+  } {
+    return {
+      success: true,
+      provider: "qq",
+      profile: req.user
+    };
+  }
+
+  @Get("oauth/wechat")
+  @UseGuards(AuthGuard("wechat"))
+  wechatLogin(): void {}
+
+  @Get("oauth/wechat/callback")
+  @UseGuards(AuthGuard("wechat"))
+  wechatCallback(@Req() req: { user: unknown }): {
+    success: boolean;
+    provider: "wechat";
+    profile: unknown;
+  } {
+    return {
+      success: true,
+      provider: "wechat",
+      profile: req.user
+    };
   }
 }

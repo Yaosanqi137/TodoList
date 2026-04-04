@@ -1,12 +1,17 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
+import { PassportModule } from "@nestjs/passport";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
+import { GithubStrategy } from "./strategies/github.strategy";
+import { QqStrategy } from "./strategies/qq.strategy";
+import { WechatStrategy } from "./strategies/wechat.strategy";
 
 @Module({
   imports: [
     ConfigModule,
+    PassportModule.register({ session: false }),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
@@ -22,6 +27,6 @@ import { AuthService } from "./auth.service";
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService]
+  providers: [AuthService, GithubStrategy, QqStrategy, WechatStrategy]
 })
 export class AuthModule {}
