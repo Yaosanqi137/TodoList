@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, PayloadTooLargeException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -8,6 +8,11 @@ import { PrismaService } from "../prisma/prisma.service";
 import { CompleteAttachmentDto } from "./dto/complete-attachment.dto";
 import { PresignAttachmentDto } from "./dto/presign-attachment.dto";
 
+type QuotaInfo = {
+  totalBytes: bigint;
+  usedBytes: bigint;
+};
+
 export type PresignAttachmentResponse = {
   method: "PUT";
   uploadUrl: string;
@@ -15,6 +20,11 @@ export type PresignAttachmentResponse = {
   objectKey: string;
   objectUrl: string;
   expiresInSeconds: number;
+  quota: {
+    totalBytes: string;
+    usedBytes: string;
+    remainingBytes: string;
+  };
   headers: {
     "Content-Type": string;
   };
@@ -49,6 +59,9 @@ export class AttachmentService {
     userId: string,
     body: PresignAttachmentDto
   ): Promise<PresignAttachmentResponse> {
+    const quotaInfo = await this.getQuotaSnapshot(userId);
+    this.assertQuotaAvailable(quotaInfo.totalBytes, quotaInfo.usedBytes, body.fileSize);
+
     if (body.taskId) {
       await this.ensureTaskOwnership(userId, body.taskId);
     }
@@ -76,6 +89,11 @@ export class AttachmentService {
       objectKey,
       objectUrl,
       expiresInSeconds,
+      quota: {
+        totalBytes: quotaInfo.totalBytes.toString(),
+        usedBytes: quotaInfo.usedBytes.toString(),
+        remainingBytes: (quotaInfo.totalBytes - quotaInfo.usedBytes).toString()
+      },
       headers: {
         "Content-Type": body.mimeType
       }
@@ -92,20 +110,45 @@ export class AttachmentService {
 
     const bucket = body.bucket ?? this.getDefaultBucket();
     const objectUrl = this.resolveObjectUrl(bucket, body.objectKey);
-    const attachment = await this.prismaService.attachment.create({
-      data: {
-        userId,
-        taskId: body.taskId ?? null,
-        type: body.type ?? this.resolveAttachmentType(body.mimeType),
-        url: objectUrl,
-        mimeType: body.mimeType,
-        fileName: body.fileName,
-        fileSize: body.fileSize,
-        width: body.width ?? null,
-        height: body.height ?? null,
-        durationMs: body.durationMs ?? null,
-        checksum: body.checksum ?? null
+
+    const attachment = await this.prismaService.$transaction(async (tx) => {
+      const quotaInfo = await this.getQuotaSnapshot(userId, tx);
+      this.assertQuotaAvailable(quotaInfo.totalBytes, quotaInfo.usedBytes, body.fileSize);
+
+      const uploadBytes = BigInt(body.fileSize);
+      const maxUsedBeforeUpload = quotaInfo.totalBytes - uploadBytes;
+      const updatedUser = await tx.user.updateMany({
+        where: {
+          id: userId,
+          usedStorageBytes: {
+            lte: maxUsedBeforeUpload
+          }
+        },
+        data: {
+          usedStorageBytes: {
+            increment: uploadBytes
+          }
+        }
+      });
+      if (updatedUser.count === 0) {
+        throw new PayloadTooLargeException("存储配额不足");
       }
+
+      return tx.attachment.create({
+        data: {
+          userId,
+          taskId: body.taskId ?? null,
+          type: body.type ?? this.resolveAttachmentType(body.mimeType),
+          url: objectUrl,
+          mimeType: body.mimeType,
+          fileName: body.fileName,
+          fileSize: body.fileSize,
+          width: body.width ?? null,
+          height: body.height ?? null,
+          durationMs: body.durationMs ?? null,
+          checksum: body.checksum ?? null
+        }
+      });
     });
 
     return {
@@ -202,6 +245,38 @@ export class AttachmentService {
 
     if (!task) {
       throw new NotFoundException("任务不存在");
+    }
+  }
+
+  private async getQuotaSnapshot(
+    userId: string,
+    tx: Pick<PrismaService, "user"> = this.prismaService
+  ): Promise<QuotaInfo> {
+    const user = await tx.user.findUnique({
+      where: {
+        id: userId
+      },
+      select: {
+        id: true,
+        defaultStorageQuotaMb: true,
+        usedStorageBytes: true
+      }
+    });
+
+    if (!user) {
+      throw new NotFoundException("用户不存在");
+    }
+
+    return {
+      totalBytes: BigInt(user.defaultStorageQuotaMb) * 1024n * 1024n,
+      usedBytes: user.usedStorageBytes
+    };
+  }
+
+  private assertQuotaAvailable(totalBytes: bigint, usedBytes: bigint, fileSize: number): void {
+    const uploadBytes = BigInt(fileSize);
+    if (uploadBytes > totalBytes || usedBytes + uploadBytes > totalBytes) {
+      throw new PayloadTooLargeException("存储配额不足");
     }
   }
 }
