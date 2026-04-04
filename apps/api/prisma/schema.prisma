@@ -1,7 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Prisma 数据模型定义（TodoList）
 
 generator client {
   provider = "prisma-client"
@@ -25,19 +22,47 @@ enum AuthProvider {
   WECHAT
 }
 
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+
+enum AttachmentType {
+  IMAGE
+  VIDEO
+  FILE
+  LINK
+}
+
 model User {
-  id                    String         @id @default(cuid())
-  email                 String         @unique
+  id                    String            @id @default(cuid())
+  email                 String            @unique
   nickname              String?
   avatarUrl             String?
-  status                UserStatus     @default(ACTIVE)
-  defaultStorageQuotaMb Int            @default(100)
-  usedStorageBytes      BigInt         @default(0)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  status                UserStatus        @default(ACTIVE)
+  defaultStorageQuotaMb Int               @default(100)
+  usedStorageBytes      BigInt            @default(0)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
   identities            AuthIdentity[]
   refreshTokens         RefreshToken[]
   security              UserSecurity?
+  tasks                 Task[]
+  tags                  Tag[]
+  attachments           Attachment[]
+  taskActivityLogs      TaskActivityLog[]
+  syncOperations        SyncOperation[]
+  syncCursors           SyncCursor[]
+  taskTombstones        TaskTombstone[]
 
   @@map("users")
 }
@@ -82,4 +107,136 @@ model RefreshToken {
 
   @@index([userId, expiresAt])
   @@map("refresh_tokens")
+}
+
+model Task {
+  id           String            @id @default(cuid())
+  userId       String
+  title        String
+  contentJson  Json?
+  contentText  String?
+  priority     TaskPriority      @default(MEDIUM)
+  status       TaskStatus        @default(TODO)
+  ddl          DateTime?
+  completedAt  DateTime?
+  version      Int               @default(1)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskTags     TaskTag[]
+  attachments  Attachment[]
+  activityLogs TaskActivityLog[]
+
+  @@index([userId, status])
+  @@index([userId, ddl])
+  @@map("tasks")
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskTags  TaskTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+model TaskTag {
+  taskId    String
+  tagId     String
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([tagId])
+  @@map("task_tags")
+}
+
+model Attachment {
+  id         String         @id @default(cuid())
+  userId     String
+  taskId     String?
+  type       AttachmentType
+  url        String
+  mimeType   String?
+  fileName   String?
+  fileSize   Int
+  width      Int?
+  height     Int?
+  durationMs Int?
+  checksum   String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task       Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([taskId])
+  @@map("attachments")
+}
+
+model TaskActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  taskId    String
+  action    String
+  payload   Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([userId, createdAt])
+  @@map("task_activity_logs")
+}
+
+model SyncOperation {
+  id         String   @id @default(cuid())
+  opId       String   @unique
+  userId     String
+  deviceId   String
+  entityType String
+  entityId   String
+  action     String
+  payload    Json?
+  clientTs   DateTime
+  serverTs   DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deviceId, serverTs])
+  @@index([userId, entityType, entityId])
+  @@map("sync_operations")
+}
+
+model SyncCursor {
+  id                    String    @id @default(cuid())
+  userId                String
+  deviceId              String
+  lastPulledAt          DateTime?
+  lastOperationServerTs DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@map("sync_cursors")
+}
+
+model TaskTombstone {
+  id         String   @id @default(cuid())
+  taskId     String   @unique
+  userId     String
+  deletedAt  DateTime @default(now())
+  deleteOpId String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deletedAt])
+  @@map("task_tombstones")
 }
