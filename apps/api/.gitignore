@@ -1,5 +1,5 @@
 node_modules
-# Keep environment variables out of version control
+# 环境变量文件不纳入版本控制
 .env
 
 /generated/prisma
