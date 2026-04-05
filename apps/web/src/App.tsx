@@ -1,6 +1,22 @@
-﻿import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Bell,
+  ChevronLeft,
+  ChevronRight,
+  LayoutDashboard,
+  ListTodo,
+  LogOut,
+  Menu,
+  Moon,
+  Settings,
+  Sparkles,
+  Sun,
+  X
+} from "lucide-react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { EmailLoginPage } from "@/pages/email-login-page";
 import { OAuthCallbackPage } from "@/pages/oauth-callback-page";
 import { TodoShellPage } from "@/pages/todo-shell-page";
@@ -11,6 +27,26 @@ import {
   saveSession,
   type WebSession
 } from "@/services/session-storage";
+import {
+  applyThemeMode,
+  loadThemeMode,
+  saveThemeMode,
+  type ThemeMode
+} from "@/services/theme-storage";
+
+type SidebarItem = {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+const SIDEBAR_ITEMS: SidebarItem[] = [
+  { key: "dashboard", label: "概览面板", icon: LayoutDashboard },
+  { key: "todo", label: "待办事项", icon: ListTodo },
+  { key: "ai", label: "AI 建议", icon: Sparkles },
+  { key: "notice", label: "提醒中心", icon: Bell },
+  { key: "settings", label: "系统设置", icon: Settings }
+];
 
 function toWebSession(payload: EmailLoginResult): WebSession {
   return {
@@ -26,7 +62,15 @@ function toWebSession(payload: EmailLoginResult): WebSession {
 function App() {
   const [session, setSession] = useState<WebSession | null>(() => loadSession());
   const [loggingOut, setLoggingOut] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemeMode());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    applyThemeMode(themeMode);
+    saveThemeMode(themeMode);
+  }, [themeMode]);
 
   async function handleLogout(): Promise<void> {
     if (!session || loggingOut) {
@@ -37,75 +81,233 @@ function App() {
       setLoggingOut(true);
       await revokeRefreshToken(session.refreshToken);
     } catch {
-      // 登出流程以本地会话清理为最终兜底，避免页面卡在登录态。
+      // 无论接口成功与否，都要清理本地会话，避免页面卡在登录态。
     } finally {
       clearSession();
       setSession(null);
       setLoggingOut(false);
+      setMobileSidebarOpen(false);
       navigate("/login/email", { replace: true });
     }
   }
 
-  return (
-    <div className="min-h-screen bg-[#f6f8f7] text-[#122117]">
-      <header className="border-b border-[#d7e2db] bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-[#0a7a5a]" />
-            <span className="text-lg font-semibold tracking-tight">TodoList</span>
+  function handleToggleTheme(): void {
+    setThemeMode((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
+  }
+
+  function renderSidebarContent(options: { collapsed: boolean; mobile: boolean }) {
+    const { collapsed, mobile } = options;
+
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {mobile ? (
+          <div className="flex h-14 shrink-0 items-center justify-end border-b border-border/70 px-3">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="text-muted-foreground"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="关闭侧边栏"
+            >
+              <X className="size-4" />
+            </Button>
           </div>
-          {session ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-[#3a5a4a]">{session.user.email}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleLogout}
-                disabled={loggingOut}
-              >
-                {loggingOut ? "退出中..." : "退出登录"}
-              </Button>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <nav className="space-y-1">
+            {SIDEBAR_ITEMS.map((item) => {
+              const ItemIcon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={cn(
+                    "group flex w-full items-center rounded-xl border border-transparent text-left transition-colors",
+                    "hover:border-primary/25 hover:bg-primary/10",
+                    "gap-3 px-3 py-2.5"
+                  )}
+                >
+                  <ItemIcon className="size-5 shrink-0 text-primary" />
+                  {collapsed ? null : (
+                    <>
+                      <span className="text-sm whitespace-nowrap text-foreground">
+                        {item.label}
+                      </span>
+                      <span className="ml-auto whitespace-nowrap rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground">
+                        即将上线
+                      </span>
+                    </>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="shrink-0 space-y-2 border-t border-border/70 p-2">
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              "w-full border-primary/25 text-primary hover:bg-primary/10",
+              "justify-start gap-2 px-3"
+            )}
+            onClick={handleToggleTheme}
+          >
+            {themeMode === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {collapsed ? null : (
+              <span className="whitespace-nowrap">
+                {themeMode === "dark" ? "浅色模式" : "深色模式"}
+              </span>
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              "w-full border-primary/25 text-primary hover:bg-primary/10",
+              "justify-start gap-2 px-3"
+            )}
+            onClick={handleLogout}
+            disabled={!session || loggingOut}
+          >
+            <LogOut className="size-4" />
+            {collapsed ? null : (
+              <span className="whitespace-nowrap">{loggingOut ? "退出中..." : "退出登录"}</span>
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-dvh overflow-hidden bg-background text-foreground md:h-screen">
+      <header className="relative z-50 shrink-0 border-b border-border/70 bg-background/80 backdrop-blur-xl">
+        <div className="flex h-16 items-center justify-between px-4 md:px-6">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="text-primary md:hidden"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="打开侧边栏"
+            >
+              <Menu className="size-12" />
+            </button>
+            <img
+              src="/favicon.png"
+              alt="TodoList"
+              className="h-9 w-9 shrink-0 rounded-xl shadow-sm"
+            />
+            <div className="flex flex-col">
+              <span className="text-base font-semibold tracking-tight text-foreground">
+                TodoList
+              </span>
             </div>
-          ) : (
-            <span className="text-sm text-[#3a5a4a]">未登录</span>
-          )}
+          </div>
+          <span className="hidden max-w-[280px] truncate text-sm text-muted-foreground md:block">
+            {session ? session.user.email : "未登录"}
+          </span>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl px-4 py-8">
-        <Routes>
-          <Route
-            path="/login/email"
-            element={
-              <EmailLoginPage
-                onLoginSuccess={(payload) => {
-                  const nextSession = toWebSession(payload);
-                  saveSession(nextSession);
-                  setSession(nextSession);
-                  navigate("/");
-                }}
-              />
-            }
-          />
-          <Route
-            path="/auth/callback/:provider"
-            element={
-              <OAuthCallbackPage
-                onBootstrapSession={(nextSession) => {
-                  setSession(nextSession);
-                }}
-              />
-            }
-          />
-          <Route
-            path="/"
-            element={
-              session ? <TodoShellPage session={session} /> : <Navigate to="/login/email" replace />
-            }
-          />
-          <Route path="*" element={<Navigate to={session ? "/" : "/login/email"} replace />} />
-        </Routes>
-      </main>
+
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          className="fixed inset-x-0 bottom-0 top-16 z-30 bg-black/40 backdrop-blur-[2px] md:hidden"
+          aria-label="关闭侧边栏遮罩"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        className={cn(
+          "fixed bottom-0 left-0 top-16 z-40 w-72 border-r border-border/80 bg-card/95 backdrop-blur-xl transition-transform duration-300 md:hidden",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {renderSidebarContent({ collapsed: false, mobile: true })}
+      </aside>
+
+      <div className="flex min-h-0 h-[calc(100dvh-4rem)] md:h-[calc(100vh-4rem)]">
+        <aside
+          className={cn(
+            "relative hidden h-full border-r border-border/80 bg-card/88 backdrop-blur-xl transition-[width] duration-300 md:flex md:flex-col",
+            sidebarCollapsed ? "md:w-14" : "md:w-72"
+          )}
+        >
+          {renderSidebarContent({ collapsed: sidebarCollapsed, mobile: false })}
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            className={cn(
+              "absolute left-full top-1/2 z-20 -ml-px h-14 w-6 -translate-y-1/2 rounded-none border border-border/80",
+              "bg-card/88 text-muted-foreground backdrop-blur-xl transition-colors duration-200 hover:bg-muted/80 hover:text-foreground",
+              "focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-0"
+            )}
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="size-4" />
+            ) : (
+              <ChevronLeft className="size-4" />
+            )}
+          </Button>
+        </aside>
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6 md:py-8">
+            <div className="mx-auto w-full max-w-6xl">
+              <Routes>
+                <Route
+                  path="/login/email"
+                  element={
+                    <EmailLoginPage
+                      onLoginSuccess={(payload) => {
+                        const nextSession = toWebSession(payload);
+                        saveSession(nextSession);
+                        setSession(nextSession);
+                        setMobileSidebarOpen(false);
+                        navigate("/");
+                      }}
+                    />
+                  }
+                />
+                <Route
+                  path="/auth/callback/:provider"
+                  element={
+                    <OAuthCallbackPage
+                      onBootstrapSession={(nextSession) => {
+                        setSession(nextSession);
+                        setMobileSidebarOpen(false);
+                      }}
+                    />
+                  }
+                />
+                <Route
+                  path="/"
+                  element={
+                    session ? (
+                      <TodoShellPage session={session} />
+                    ) : (
+                      <Navigate to="/login/email" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="*"
+                  element={<Navigate to={session ? "/" : "/login/email"} replace />}
+                />
+              </Routes>
+            </div>
+          </main>
+        </div>
+      </div>
     </div>
   );
 }
