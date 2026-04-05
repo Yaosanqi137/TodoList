@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
@@ -14,7 +14,7 @@ import {
   Sun,
   X
 } from "lucide-react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { EmailLoginPage } from "@/pages/email-login-page";
@@ -66,6 +66,10 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isAuthPage =
+    location.pathname === "/login/email" || location.pathname.startsWith("/auth/callback/");
 
   useEffect(() => {
     applyThemeMode(themeMode);
@@ -93,6 +97,19 @@ function App() {
 
   function handleToggleTheme(): void {
     setThemeMode((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
+  }
+
+  function handleLoginSuccess(payload: EmailLoginResult): void {
+    const nextSession = toWebSession(payload);
+    saveSession(nextSession);
+    setSession(nextSession);
+    setMobileSidebarOpen(false);
+    navigate("/", { replace: true });
+  }
+
+  function handleBootstrapSession(nextSession: WebSession): void {
+    setSession(nextSession);
+    setMobileSidebarOpen(false);
   }
 
   function renderSidebarContent(options: { collapsed: boolean; mobile: boolean }) {
@@ -124,9 +141,8 @@ function App() {
                   key={item.key}
                   type="button"
                   className={cn(
-                    "group flex w-full items-center rounded-xl border border-transparent text-left transition-colors",
-                    "hover:border-primary/25 hover:bg-primary/10",
-                    "gap-3 px-3 py-2.5"
+                    "group flex w-full items-center rounded-xl border border-transparent px-3 py-2.5 text-left transition-colors",
+                    "gap-3 hover:border-primary/25 hover:bg-primary/10"
                   )}
                 >
                   <ItemIcon className="size-5 shrink-0 text-primary" />
@@ -150,10 +166,7 @@ function App() {
           <Button
             type="button"
             variant="outline"
-            className={cn(
-              "w-full border-primary/25 text-primary hover:bg-primary/10",
-              "justify-start gap-2 px-3"
-            )}
+            className="w-full justify-start gap-2 border-primary/25 px-3 text-primary hover:bg-primary/10"
             onClick={handleToggleTheme}
           >
             {themeMode === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -167,10 +180,7 @@ function App() {
           <Button
             type="button"
             variant="outline"
-            className={cn(
-              "w-full border-primary/25 text-primary hover:bg-primary/10",
-              "justify-start gap-2 px-3"
-            )}
+            className="w-full justify-start gap-2 border-primary/25 px-3 text-primary hover:bg-primary/10"
             onClick={handleLogout}
             disabled={!session || loggingOut}
           >
@@ -180,6 +190,28 @@ function App() {
             )}
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (isAuthPage) {
+    return (
+      <div className="min-h-dvh bg-background text-foreground md:min-h-screen">
+        <main className="flex min-h-dvh items-center justify-center px-4 py-8 md:min-h-screen md:px-6">
+          <div className="w-full max-w-md">
+            <Routes>
+              <Route
+                path="/login/email"
+                element={<EmailLoginPage onLoginSuccess={handleLoginSuccess} />}
+              />
+              <Route
+                path="/auth/callback/:provider"
+                element={<OAuthCallbackPage onBootstrapSession={handleBootstrapSession} />}
+              />
+              <Route path="*" element={<Navigate to={session ? "/" : "/login/email"} replace />} />
+            </Routes>
+          </div>
+        </main>
       </div>
     );
   }
@@ -202,11 +234,7 @@ function App() {
               alt="TodoList"
               className="h-9 w-9 shrink-0 rounded-xl shadow-sm"
             />
-            <div className="flex flex-col">
-              <span className="text-base font-semibold tracking-tight text-foreground">
-                TodoList
-              </span>
-            </div>
+            <span className="text-base font-semibold tracking-tight text-foreground">TodoList</span>
           </div>
           <span className="hidden max-w-[280px] truncate text-sm text-muted-foreground md:block">
             {session ? session.user.email : "未登录"}
@@ -232,7 +260,7 @@ function App() {
         {renderSidebarContent({ collapsed: false, mobile: true })}
       </aside>
 
-      <div className="flex min-h-0 h-[calc(100dvh-4rem)] md:h-[calc(100vh-4rem)]">
+      <div className="flex h-[calc(100dvh-4rem)] min-h-0 md:h-[calc(100vh-4rem)]">
         <aside
           className={cn(
             "relative hidden h-full border-r border-border/80 bg-card/88 backdrop-blur-xl transition-[width] duration-300 md:flex md:flex-col",
@@ -264,31 +292,6 @@ function App() {
           <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6 md:py-8">
             <div className="mx-auto w-full max-w-6xl">
               <Routes>
-                <Route
-                  path="/login/email"
-                  element={
-                    <EmailLoginPage
-                      onLoginSuccess={(payload) => {
-                        const nextSession = toWebSession(payload);
-                        saveSession(nextSession);
-                        setSession(nextSession);
-                        setMobileSidebarOpen(false);
-                        navigate("/");
-                      }}
-                    />
-                  }
-                />
-                <Route
-                  path="/auth/callback/:provider"
-                  element={
-                    <OAuthCallbackPage
-                      onBootstrapSession={(nextSession) => {
-                        setSession(nextSession);
-                        setMobileSidebarOpen(false);
-                      }}
-                    />
-                  }
-                />
                 <Route
                   path="/"
                   element={
