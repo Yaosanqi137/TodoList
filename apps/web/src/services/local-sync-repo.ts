@@ -118,6 +118,49 @@ export async function enqueueRemoteSyncOperations(
   return records.length;
 }
 
+export async function listPendingRemoteOperations(
+  userId: string,
+  limit = 100
+): Promise<LocalSyncInboxRecord[]> {
+  const records = await localDb.syncInbox.where("userId").equals(userId).toArray();
+
+  return records
+    .filter((record) => record.appliedAt === null)
+    .sort((left, right) => {
+      if (left.serverTs !== right.serverTs) {
+        return left.serverTs - right.serverTs;
+      }
+
+      if (left.clientTs !== right.clientTs) {
+        return left.clientTs - right.clientTs;
+      }
+
+      return left.opId.localeCompare(right.opId);
+    })
+    .slice(0, limit);
+}
+
+export async function markRemoteOperationsApplied(
+  opIds: string[],
+  appliedAt: number
+): Promise<void> {
+  if (opIds.length === 0) {
+    return;
+  }
+
+  const records = await localDb.syncInbox.bulkGet(opIds);
+  const nextRecords = records
+    .filter((record): record is LocalSyncInboxRecord => record !== undefined)
+    .map((record) => ({
+      ...record,
+      appliedAt
+    }));
+
+  if (nextRecords.length > 0) {
+    await localDb.syncInbox.bulkPut(nextRecords);
+  }
+}
+
 export async function countPendingRemoteOperations(userId: string): Promise<number> {
   const records = await localDb.syncInbox.where("userId").equals(userId).toArray();
   return records.filter((record) => record.appliedAt === null).length;

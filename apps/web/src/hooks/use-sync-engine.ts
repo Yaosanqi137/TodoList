@@ -7,6 +7,7 @@ import {
   getLocalSyncState
 } from "@/services/local-sync-repo";
 import type { WebSession } from "@/services/session-storage";
+import { applyPendingRemoteOperations } from "@/services/sync-merge";
 import { runSyncWorkerCycle } from "@/services/sync-worker";
 
 const PERIODIC_SYNC_INTERVAL_MS = 30_000;
@@ -70,6 +71,7 @@ export function useSyncEngine(session: WebSession | null): {
 
   const retryAttemptRef = useRef(0);
   const runningRef = useRef(false);
+  const mergeRunningRef = useRef(false);
 
   useEffect(() => {
     setLastSyncedAt(storedSyncState?.lastSyncedAt ?? null);
@@ -116,6 +118,37 @@ export function useSyncEngine(session: WebSession | null): {
   const triggerSync = useCallback(() => {
     void runCycle();
   }, [runCycle]);
+
+  const runMerge = useCallback(async () => {
+    if (!userId || mergeRunningRef.current) {
+      return;
+    }
+
+    mergeRunningRef.current = true;
+
+    try {
+      await applyPendingRemoteOperations(userId);
+
+      if (!runningRef.current) {
+        setPhase((currentPhase) => {
+          if (!window.navigator.onLine) {
+            return "offline";
+          }
+
+          if (currentPhase === "backoff") {
+            return currentPhase;
+          }
+
+          return blockedCount > 0 ? "attention" : "idle";
+        });
+      }
+    } catch (error) {
+      setLastError(getErrorMessage(error));
+      setPhase("attention");
+    } finally {
+      mergeRunningRef.current = false;
+    }
+  }, [blockedCount, userId]);
 
   useEffect(() => {
     function handleOnline(): void {
@@ -189,6 +222,14 @@ export function useSyncEngine(session: WebSession | null): {
       window.clearTimeout(timeoutId);
     };
   }, [isOnline, nextRetryAt, runCycle]);
+
+  useEffect(() => {
+    if (!userId || pendingRemoteCount === 0 || runningRef.current) {
+      return;
+    }
+
+    void runMerge();
+  }, [pendingRemoteCount, runMerge, userId]);
 
   useEffect(() => {
     if (!userId) {

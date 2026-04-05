@@ -39,7 +39,7 @@ export class SyncPushOperationDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(50000)
+  @MaxLength(5000000)
   payload?: string;
 
   @Type(() => Number)

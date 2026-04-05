@@ -41,6 +41,10 @@ function resolveApiBaseUrl(): string {
 }
 
 async function parseErrorMessage(response: Response): Promise<string> {
+  if (response.status === 413) {
+    return "单次同步内容过大，请精简本次任务内容或等待系统分批重试。";
+  }
+
   try {
     const body = (await response.json()) as { message?: string | string[] };
     if (Array.isArray(body.message)) {
@@ -57,10 +61,56 @@ async function parseErrorMessage(response: Response): Promise<string> {
   return `请求失败（${response.status}）`;
 }
 
+type SyncPushOperationRequest = {
+  opId: string;
+  entityId: string;
+  entityType: LocalOpLogRecord["entityType"];
+  action: LocalOpLogRecord["action"];
+  payload: string;
+  clientTs: number;
+  deviceId: string;
+};
+
+function compactOperationPayload(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return payload;
+    }
+
+    const nextPayload = { ...(parsed as Record<string, unknown>) };
+    if (nextPayload.contentJson !== undefined && nextPayload.contentJson !== null) {
+      delete nextPayload.contentText;
+    }
+
+    return JSON.stringify(nextPayload);
+  } catch {
+    return payload;
+  }
+}
+
+export function serializeSyncOperationForRequest(
+  operation: LocalOpLogRecord
+): SyncPushOperationRequest {
+  return {
+    opId: operation.opId,
+    entityId: operation.entityId,
+    entityType: operation.entityType,
+    action: operation.action,
+    payload: compactOperationPayload(operation.payload),
+    clientTs: operation.clientTs,
+    deviceId: operation.deviceId
+  };
+}
+
 export async function pushSyncOperations(
   userId: string,
   operations: LocalOpLogRecord[]
 ): Promise<SyncPushResult> {
+  const requestOperations = operations.map((operation) =>
+    serializeSyncOperationForRequest(operation)
+  );
+
   const response = await fetch(`${resolveApiBaseUrl()}/sync/push`, {
     method: "POST",
     headers: {
@@ -68,15 +118,7 @@ export async function pushSyncOperations(
       "x-user-id": userId
     },
     body: JSON.stringify({
-      operations: operations.map((operation) => ({
-        opId: operation.opId,
-        entityId: operation.entityId,
-        entityType: operation.entityType,
-        action: operation.action,
-        payload: operation.payload,
-        clientTs: operation.clientTs,
-        deviceId: operation.deviceId
-      }))
+      operations: requestOperations
     })
   });
 

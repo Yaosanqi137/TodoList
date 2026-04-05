@@ -17,6 +17,7 @@ export type LocalTaskRecord = {
   priority: LocalTaskPriority;
   status: LocalTaskStatus;
   ddlAt: number | null;
+  version: number;
   createdAt: number;
   updatedAt: number;
   deletedAt: number | null;
@@ -96,6 +97,25 @@ class TodoLocalDb extends Dexie {
       sync_states: "&userId,updatedAt,lastSyncedAt",
       sync_inbox: "&opId,userId,entityId,serverTs,appliedAt"
     });
+
+    this.version(4)
+      .stores({
+        tasks: "&id,userId,status,priority,ddlAt,updatedAt,deletedAt",
+        op_logs: "&opId,entityId,entityType,action,clientTs,syncedAt",
+        task_drafts: "&taskId,userId,updatedAt",
+        sync_states: "&userId,updatedAt,lastSyncedAt",
+        sync_inbox: "&opId,userId,entityId,serverTs,appliedAt"
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("tasks")
+          .toCollection()
+          .modify((task: Partial<LocalTaskRecord>) => {
+            if (typeof task.version !== "number") {
+              task.version = 1;
+            }
+          });
+      });
 
     this.tasks = this.table("tasks");
     this.opLogs = this.table("op_logs");

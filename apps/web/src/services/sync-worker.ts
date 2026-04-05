@@ -6,15 +6,45 @@ import {
   markSyncOperationsSucceeded,
   saveLocalSyncState
 } from "@/services/local-sync-repo";
-import { pullSyncOperations, pushSyncOperations } from "@/services/sync-api";
+import { applyPendingRemoteOperations } from "@/services/sync-merge";
+import {
+  pullSyncOperations,
+  pushSyncOperations,
+  serializeSyncOperationForRequest
+} from "@/services/sync-api";
+import type { LocalOpLogRecord } from "@/services/local-db";
 
 const PUSH_BATCH_LIMIT = 20;
+const PUSH_BATCH_MAX_BYTES = 256 * 1024;
 const PULL_BATCH_LIMIT = 100;
 const MAX_PULL_PAGES_PER_CYCLE = 5;
+
+function estimateOperationBytes(operation: LocalOpLogRecord): number {
+  return new TextEncoder().encode(JSON.stringify(serializeSyncOperationForRequest(operation)))
+    .length;
+}
+
+function createPushBatch(operations: LocalOpLogRecord[]): LocalOpLogRecord[] {
+  const batch: LocalOpLogRecord[] = [];
+  let batchBytes = 0;
+
+  for (const operation of operations) {
+    const operationBytes = estimateOperationBytes(operation);
+    if (batch.length > 0 && batchBytes + operationBytes > PUSH_BATCH_MAX_BYTES) {
+      break;
+    }
+
+    batch.push(operation);
+    batchBytes += operationBytes;
+  }
+
+  return batch;
+}
 
 export type SyncCycleResult = {
   pushedCount: number;
   pulledCount: number;
+  appliedRemoteCount: number;
   lastSyncedAt: number;
   hasFailures: boolean;
   failureMessage: string | null;
@@ -24,15 +54,17 @@ export async function runSyncWorkerCycle(userId: string): Promise<SyncCycleResul
   const lastSyncedAt = Date.now();
   let pushedCount = 0;
   let pulledCount = 0;
+  let appliedRemoteCount = 0;
   let hasFailures = false;
   let failureMessage: string | null = null;
 
   for (;;) {
-    const pendingOperations = await listPendingSyncOperations(PUSH_BATCH_LIMIT);
-    if (pendingOperations.length === 0) {
+    const pendingCandidates = await listPendingSyncOperations(PUSH_BATCH_LIMIT);
+    if (pendingCandidates.length === 0) {
       break;
     }
 
+    const pendingOperations = createPushBatch(pendingCandidates);
     const pushResult = await pushSyncOperations(userId, pendingOperations);
     const syncedOperationIds = pushResult.results
       .filter((result) => result.status === "accepted" || result.status === "duplicate")
@@ -55,7 +87,10 @@ export async function runSyncWorkerCycle(userId: string): Promise<SyncCycleResul
       break;
     }
 
-    if (pendingOperations.length < PUSH_BATCH_LIMIT) {
+    if (
+      pendingCandidates.length < PUSH_BATCH_LIMIT ||
+      pendingOperations.length < pendingCandidates.length
+    ) {
       break;
     }
   }
@@ -94,9 +129,12 @@ export async function runSyncWorkerCycle(userId: string): Promise<SyncCycleResul
     });
   }
 
+  appliedRemoteCount = await applyPendingRemoteOperations(userId);
+
   return {
     pushedCount,
     pulledCount,
+    appliedRemoteCount,
     lastSyncedAt,
     hasFailures,
     failureMessage
