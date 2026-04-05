@@ -1,11 +1,14 @@
-﻿import { useEffect, useMemo } from "react";
-import type { JSONContent } from "@tiptap/react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import imageCompression from "browser-image-compression";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
 import Youtube from "@tiptap/extension-youtube";
+import { EditorContent, type JSONContent, useEditor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
+
+const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
+const MAX_VIDEO_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 type TaskRichEditorProps = {
   valueJson: string | null;
@@ -54,7 +57,23 @@ function resolveEditorContent(
   return textFallback;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEditorProps) {
+  const [mediaHint, setMediaHint] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+
   const content = useMemo(
     () => resolveEditorContent(valueJson, textFallback),
     [valueJson, textFallback]
@@ -99,8 +118,76 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
     editor.commands.setContent(content, { emitUpdate: false });
   }, [content, editor]);
 
+  async function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !editor) {
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      setMediaHint(`图片过大，请选择小于 ${formatBytes(MAX_IMAGE_UPLOAD_BYTES)} 的文件。`);
+      return;
+    }
+
+    try {
+      const compressedImage = await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true,
+        initialQuality: 0.8
+      });
+
+      const imageSource = await imageCompression.getDataUrlFromFile(compressedImage);
+      editor.chain().focus().setImage({ src: imageSource, alt: file.name }).run();
+
+      setMediaHint(
+        `图片已插入：${formatBytes(file.size)} -> ${formatBytes(compressedImage.size)}。`
+      );
+    } catch {
+      setMediaHint("图片处理失败，请重试。");
+    }
+  }
+
+  function handleVideoFileChange(event: ChangeEvent<HTMLInputElement>): void {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !editor) {
+      return;
+    }
+
+    if (file.size > MAX_VIDEO_UPLOAD_BYTES) {
+      setMediaHint(`视频过大，请选择小于 ${formatBytes(MAX_VIDEO_UPLOAD_BYTES)} 的文件。`);
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertContent(`\n[视频待上传] ${file.name}（${formatBytes(file.size)}）\n`)
+      .run();
+    setMediaHint("视频已通过大小校验并插入占位文本，正式上传接口将在后续接入。");
+  }
+
   return (
     <div>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageFileChange}
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={handleVideoFileChange}
+      />
+
       <div className="flex flex-wrap gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-2 py-2">
         <ToolbarButton
           label="粗体"
@@ -144,7 +231,7 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
           }}
         />
         <ToolbarButton
-          label="图片"
+          label="图片URL"
           disabled={!editor}
           onClick={() => {
             if (!editor) {
@@ -160,7 +247,12 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
           }}
         />
         <ToolbarButton
-          label="视频"
+          label="上传图片"
+          disabled={!editor}
+          onClick={() => imageInputRef.current?.click()}
+        />
+        <ToolbarButton
+          label="视频URL"
           disabled={!editor}
           onClick={() => {
             if (!editor) {
@@ -175,8 +267,14 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
             editor.chain().focus().setYoutubeVideo({ src: url }).run();
           }}
         />
+        <ToolbarButton
+          label="上传视频"
+          disabled={!editor}
+          onClick={() => videoInputRef.current?.click()}
+        />
       </div>
       <EditorContent editor={editor} />
+      {mediaHint ? <p className="mt-2 text-xs text-muted-foreground">{mediaHint}</p> : null}
     </div>
   );
 }

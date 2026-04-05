@@ -11,6 +11,7 @@ import {
   listLocalTasksByUser,
   updateLocalTask
 } from "@/services/local-task-repo";
+import { formatStorageSize, getStorageQuotaSnapshot } from "@/services/storage-quota";
 import type { WebSession } from "@/services/session-storage";
 
 type TodoShellPageProps = {
@@ -97,6 +98,14 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
     }
 
     return listLocalTasksByUser(userId);
+  }, [userId]);
+
+  const quotaSnapshot = useLiveQuery(async () => {
+    if (!userId) {
+      return null;
+    }
+
+    return getStorageQuotaSnapshot(userId);
   }, [userId]);
 
   const selectedTask = useLiveQuery(async () => {
@@ -227,6 +236,18 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
             {creating ? "创建中..." : "新建任务"}
           </Button>
         </div>
+
+        {quotaSnapshot ? (
+          <p
+            className={cn(
+              "mb-3 text-xs",
+              quotaSnapshot.usedPercent >= 85 ? "text-destructive" : "text-muted-foreground"
+            )}
+          >
+            空间占用（估算）：{formatStorageSize(quotaSnapshot.usedBytes)} /{" "}
+            {formatStorageSize(quotaSnapshot.quotaBytes)}（{quotaSnapshot.usedPercent.toFixed(1)}%）
+          </p>
+        ) : null}
 
         {taskList.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
