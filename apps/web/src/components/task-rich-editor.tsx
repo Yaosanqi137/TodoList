@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { memo, useEffect, useRef, useState, type ChangeEvent } from "react";
 import imageCompression from "browser-image-compression";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
@@ -156,7 +156,11 @@ function removeMediaByUploadToken(editor: TiptapEditor, uploadToken: string): bo
   });
 }
 
-export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEditorProps) {
+export const TaskRichEditor = memo(function TaskRichEditor({
+  valueJson,
+  textFallback,
+  onChange
+}: TaskRichEditorProps) {
   const [mediaHint, setMediaHint] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -530,4 +534,4 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
       {mediaHint ? <p className="mt-2 text-xs text-muted-foreground">{mediaHint}</p> : null}
     </div>
   );
-}
+});

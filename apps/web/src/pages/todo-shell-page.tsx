@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   CheckCircle2,
@@ -39,11 +39,14 @@ type TodoShellPageProps = {
 
 type TaskFormState = {
   title: string;
-  contentJson: string | null;
-  contentText: string;
   priority: LocalTaskPriority;
   status: LocalTaskStatus;
   ddlInput: string;
+};
+
+type TaskEditorState = {
+  contentJson: string | null;
+  contentText: string;
 };
 
 type FeedbackNotice = {
@@ -55,11 +58,14 @@ const DRAFT_PERSIST_DEBOUNCE_MS = 500;
 
 const DEFAULT_FORM_STATE: TaskFormState = {
   title: "",
-  contentJson: null,
-  contentText: "",
   priority: "MEDIUM",
   status: "TODO",
   ddlInput: ""
+};
+
+const DEFAULT_EDITOR_STATE: TaskEditorState = {
+  contentJson: null,
+  contentText: ""
 };
 
 const PRIORITY_OPTIONS: Array<{ value: LocalTaskPriority; label: string }> = [
@@ -125,27 +131,40 @@ function formatUpdatedAt(timestamp: number): string {
 function createFormStateFromTask(task: LocalTaskRecord): TaskFormState {
   return {
     title: task.title,
-    contentJson: task.contentJson,
-    contentText: task.contentText ?? "",
     priority: task.priority,
     status: task.status,
     ddlInput: toDatetimeLocalValue(task.ddlAt)
   };
 }
 
+function createEditorStateFromTask(task: LocalTaskRecord): TaskEditorState {
+  return {
+    contentJson: task.contentJson,
+    contentText: task.contentText ?? ""
+  };
+}
+
 function createFormStateFromDraft(draft: LocalTaskDraftRecord): TaskFormState {
   return {
     title: draft.title,
-    contentJson: draft.contentJson,
-    contentText: draft.contentText,
     priority: draft.priority,
     status: draft.status,
     ddlInput: draft.ddlInput
   };
 }
 
-function serializeFormState(formState: TaskFormState): string {
-  return JSON.stringify(formState);
+function createEditorStateFromDraft(draft: LocalTaskDraftRecord): TaskEditorState {
+  return {
+    contentJson: draft.contentJson,
+    contentText: draft.contentText
+  };
+}
+
+function serializeFormState(formState: TaskFormState, editorState: TaskEditorState): string {
+  return JSON.stringify({
+    ...formState,
+    ...editorState
+  });
 }
 
 function formatSyncTimestamp(timestamp: number | null): string {
@@ -256,7 +275,12 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   const [feedback, setFeedback] = useState<FeedbackNotice | null>(null);
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [draftReadyTaskId, setDraftReadyTaskId] = useState<string | null>(null);
-  const savedTaskSnapshotRef = useRef(serializeFormState(DEFAULT_FORM_STATE));
+  const [editorSeedState, setEditorSeedState] = useState<TaskEditorState>(DEFAULT_EDITOR_STATE);
+  const [editorKey, setEditorKey] = useState("editor-empty");
+  const savedTaskSnapshotRef = useRef(serializeFormState(DEFAULT_FORM_STATE, DEFAULT_EDITOR_STATE));
+  const formStateRef = useRef(DEFAULT_FORM_STATE);
+  const editorStateRef = useRef(DEFAULT_EDITOR_STATE);
+  const draftPersistTimeoutRef = useRef<number | null>(null);
   const { status: syncStatus, triggerSync } = useSyncEngine(session);
 
   const userId = session?.user.id ?? "";
@@ -286,6 +310,49 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   }, [selectedTaskId]);
 
   useEffect(() => {
+    formStateRef.current = formState;
+  }, [formState]);
+
+  const scheduleDraftPersist = useCallback((): void => {
+    if (!selectedTaskId || draftReadyTaskId !== selectedTaskId || !userId) {
+      return;
+    }
+
+    if (draftPersistTimeoutRef.current !== null) {
+      window.clearTimeout(draftPersistTimeoutRef.current);
+    }
+
+    const currentTaskId = selectedTaskId;
+    const currentUserId = userId;
+    const currentFormState = formStateRef.current;
+    const currentEditorState = editorStateRef.current;
+    const currentSnapshot = serializeFormState(currentFormState, currentEditorState);
+
+    draftPersistTimeoutRef.current = window.setTimeout(() => {
+      async function persistDraft(): Promise<void> {
+        if (currentSnapshot === savedTaskSnapshotRef.current) {
+          await deleteLocalTaskDraft(currentTaskId);
+          return;
+        }
+
+        await saveLocalTaskDraft({
+          taskId: currentTaskId,
+          userId: currentUserId,
+          title: currentFormState.title,
+          contentJson: currentEditorState.contentJson,
+          contentText: currentEditorState.contentText,
+          priority: currentFormState.priority,
+          status: currentFormState.status,
+          ddlInput: currentFormState.ddlInput
+        });
+      }
+
+      void persistDraft();
+      draftPersistTimeoutRef.current = null;
+    }, DRAFT_PERSIST_DEBOUNCE_MS);
+  }, [draftReadyTaskId, selectedTaskId, userId]);
+
+  useEffect(() => {
     if (!tasks || tasks.length === 0) {
       setSelectedTaskId(null);
       return;
@@ -305,8 +372,12 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   useEffect(() => {
     if (!selectedTaskId) {
       setFormState(DEFAULT_FORM_STATE);
+      formStateRef.current = DEFAULT_FORM_STATE;
+      editorStateRef.current = DEFAULT_EDITOR_STATE;
+      setEditorSeedState(DEFAULT_EDITOR_STATE);
+      setEditorKey("editor-empty");
       setDraftReadyTaskId(null);
-      savedTaskSnapshotRef.current = serializeFormState(DEFAULT_FORM_STATE);
+      savedTaskSnapshotRef.current = serializeFormState(DEFAULT_FORM_STATE, DEFAULT_EDITOR_STATE);
       return;
     }
 
@@ -319,14 +390,26 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
 
     async function hydrateFormState(): Promise<void> {
       const persistedTaskState = createFormStateFromTask(currentTask);
+      const persistedEditorState = createEditorStateFromTask(currentTask);
       const localDraft = await getLocalTaskDraft(currentTask.id);
 
       if (cancelled) {
         return;
       }
 
-      savedTaskSnapshotRef.current = serializeFormState(persistedTaskState);
-      setFormState(localDraft ? createFormStateFromDraft(localDraft) : persistedTaskState);
+      const nextFormState = localDraft ? createFormStateFromDraft(localDraft) : persistedTaskState;
+      const nextEditorState = localDraft
+        ? createEditorStateFromDraft(localDraft)
+        : persistedEditorState;
+
+      savedTaskSnapshotRef.current = serializeFormState(persistedTaskState, persistedEditorState);
+      formStateRef.current = nextFormState;
+      editorStateRef.current = nextEditorState;
+      setFormState(nextFormState);
+      setEditorSeedState(nextEditorState);
+      setEditorKey(
+        `${currentTask.id}:${currentTask.updatedAt}:${localDraft?.updatedAt ?? currentTask.updatedAt}`
+      );
       setDraftReadyTaskId(currentTask.id);
     }
 
@@ -338,40 +421,16 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   }, [selectedTask, selectedTaskId]);
 
   useEffect(() => {
-    if (!selectedTaskId || !selectedTask || draftReadyTaskId !== selectedTaskId || !userId) {
-      return;
-    }
+    scheduleDraftPersist();
+  }, [formState, scheduleDraftPersist]);
 
-    const currentSnapshot = serializeFormState(formState);
-    const currentTaskId = selectedTaskId;
-    const currentUserId = userId;
-
-    async function persistDraft(): Promise<void> {
-      if (currentSnapshot === savedTaskSnapshotRef.current) {
-        await deleteLocalTaskDraft(currentTaskId);
-        return;
-      }
-
-      await saveLocalTaskDraft({
-        taskId: currentTaskId,
-        userId: currentUserId,
-        title: formState.title,
-        contentJson: formState.contentJson,
-        contentText: formState.contentText,
-        priority: formState.priority,
-        status: formState.status,
-        ddlInput: formState.ddlInput
-      });
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void persistDraft();
-    }, DRAFT_PERSIST_DEBOUNCE_MS);
-
+  useEffect(() => {
     return () => {
-      window.clearTimeout(timeoutId);
+      if (draftPersistTimeoutRef.current !== null) {
+        window.clearTimeout(draftPersistTimeoutRef.current);
+      }
     };
-  }, [draftReadyTaskId, formState, selectedTask, selectedTaskId, userId]);
+  }, []);
 
   const showFeedback = useCallback((message: string, tone: FeedbackNotice["tone"]): void => {
     setFeedback({ message, tone });
@@ -455,11 +514,12 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
 
     try {
       setSaving(true);
+      const currentEditorState = editorStateRef.current;
       const updatedTask = await updateLocalTask({
         id: selectedTaskId,
         title: formState.title,
-        contentText: formState.contentText || null,
-        contentJson: formState.contentJson,
+        contentText: currentEditorState.contentText || null,
+        contentJson: currentEditorState.contentJson,
         priority: formState.priority,
         status: formState.status,
         ddlAt: parseDatetimeLocalValue(formState.ddlInput)
@@ -470,7 +530,10 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
         return;
       }
 
-      savedTaskSnapshotRef.current = serializeFormState(createFormStateFromTask(updatedTask));
+      savedTaskSnapshotRef.current = serializeFormState(
+        createFormStateFromTask(updatedTask),
+        createEditorStateFromTask(updatedTask)
+      );
       await deleteLocalTaskDraft(selectedTaskId);
       showFeedback("任务已保存。", "success");
     } finally {
@@ -498,15 +561,16 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
     }
   }, [deleting, selectedTaskId, showFeedback]);
 
-  const handleEditorChange = useCallback((payload: { json: string | null; text: string }): void => {
-    startTransition(() => {
-      setFormState((previous) => ({
-        ...previous,
+  const handleEditorChange = useCallback(
+    (payload: { json: string | null; text: string }): void => {
+      editorStateRef.current = {
         contentJson: payload.json,
         contentText: payload.text
-      }));
-    });
-  }, []);
+      };
+      scheduleDraftPersist();
+    },
+    [scheduleDraftPersist]
+  );
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent): void {
@@ -762,8 +826,9 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
                   <p>任务内容</p>
                   <div className="mt-1">
                     <TaskRichEditor
-                      valueJson={formState.contentJson}
-                      textFallback={formState.contentText}
+                      key={editorKey}
+                      valueJson={editorSeedState.contentJson}
+                      textFallback={editorSeedState.contentText}
                       onChange={handleEditorChange}
                     />
                   </div>
