@@ -149,6 +149,9 @@ importers:
       "@fontsource-variable/geist":
         specifier: ^5.2.8
         version: 5.2.8
+      "@tiptap/core":
+        specifier: ^3.22.2
+        version: 3.22.2(@tiptap/pm@3.22.2)
       "@tiptap/extension-image":
         specifier: ^3.22.2
         version: 3.22.2(@tiptap/core@3.22.2(@tiptap/pm@3.22.2))

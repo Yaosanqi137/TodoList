@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import imageCompression from "browser-image-compression";
-import Image from "@tiptap/extension-image";
+import type { Editor as TiptapEditor } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
-import Youtube from "@tiptap/extension-youtube";
 import { EditorContent, type JSONContent, useEditor } from "@tiptap/react";
+import { ResizableImage } from "@/extensions/resizable-image";
+import { ResizableVideo } from "@/extensions/resizable-video";
+import { ResizableYoutube } from "@/extensions/resizable-youtube";
 import { cn } from "@/lib/utils";
 
 const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -57,6 +59,14 @@ function resolveEditorContent(
   return textFallback;
 }
 
+function parseEditorJson(valueJson: string): JSONContent | null {
+  try {
+    return JSON.parse(valueJson) as JSONContent;
+  } catch {
+    return null;
+  }
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -69,15 +79,86 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function isYoutubeUrl(url: string): boolean {
+  return /(youtube\.com|youtu\.be)/i.test(url);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("读取文件失败"));
+    };
+
+    reader.onerror = () => {
+      reject(new Error("读取文件失败"));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function createUploadToken(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function replaceMediaSourceByUploadToken(
+  editor: TiptapEditor,
+  uploadToken: string,
+  attributes: Record<string, string | number | null>
+): boolean {
+  return editor.commands.command(({ tr, state }) => {
+    let updated = false;
+
+    state.doc.descendants((node, position) => {
+      if (node.attrs.uploadToken !== uploadToken) {
+        return true;
+      }
+
+      tr.setNodeMarkup(position, undefined, {
+        ...node.attrs,
+        ...attributes
+      });
+      updated = true;
+      return false;
+    });
+
+    return updated;
+  });
+}
+
+function removeMediaByUploadToken(editor: TiptapEditor, uploadToken: string): boolean {
+  return editor.commands.command(({ tr, state }) => {
+    let removed = false;
+
+    state.doc.descendants((node, position) => {
+      if (node.attrs.uploadToken !== uploadToken) {
+        return true;
+      }
+
+      tr.delete(position, position + node.nodeSize);
+      removed = true;
+      return false;
+    });
+
+    return removed;
+  });
+}
+
 export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEditorProps) {
   const [mediaHint, setMediaHint] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
-
-  const content = useMemo(
-    () => resolveEditorContent(valueJson, textFallback),
-    [valueJson, textFallback]
-  );
 
   const editor = useEditor({
     extensions: [
@@ -91,12 +172,13 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
           target: "_blank"
         }
       }),
-      Image,
-      Youtube.configure({
+      ResizableImage,
+      ResizableVideo,
+      ResizableYoutube.configure({
         controls: true
       })
     ],
-    content,
+    content: resolveEditorContent(valueJson, textFallback),
     editorProps: {
       attributes: {
         class:
@@ -115,8 +197,30 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
       return;
     }
 
-    editor.commands.setContent(content, { emitUpdate: false });
-  }, [content, editor]);
+    if (valueJson) {
+      const nextJson = parseEditorJson(valueJson);
+
+      if (!nextJson) {
+        if (editor.getText() !== textFallback) {
+          editor.commands.setContent(textFallback, { emitUpdate: false });
+        }
+        return;
+      }
+
+      if (JSON.stringify(editor.getJSON()) === JSON.stringify(nextJson)) {
+        return;
+      }
+
+      editor.commands.setContent(nextJson, { emitUpdate: false });
+      return;
+    }
+
+    if (editor.getText() === textFallback) {
+      return;
+    }
+
+    editor.commands.setContent(textFallback, { emitUpdate: false });
+  }, [editor, textFallback, valueJson]);
 
   async function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -131,6 +235,25 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
       return;
     }
 
+    const uploadToken = createUploadToken();
+    const previewUrl = URL.createObjectURL(file);
+
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "image",
+        attrs: {
+          src: previewUrl,
+          alt: file.name,
+          title: file.name,
+          widthPercent: 100,
+          align: "center",
+          uploadToken
+        }
+      })
+      .run();
+
     try {
       const compressedImage = await imageCompression(file, {
         maxSizeMB: 1,
@@ -138,19 +261,24 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
         useWebWorker: true,
         initialQuality: 0.8
       });
-
       const imageSource = await imageCompression.getDataUrlFromFile(compressedImage);
-      editor.chain().focus().setImage({ src: imageSource, alt: file.name }).run();
 
-      setMediaHint(
-        `图片已插入：${formatBytes(file.size)} -> ${formatBytes(compressedImage.size)}。`
-      );
+      replaceMediaSourceByUploadToken(editor, uploadToken, {
+        src: imageSource,
+        alt: file.name,
+        title: file.name,
+        uploadToken: null
+      });
+      setMediaHint(null);
     } catch {
+      removeMediaByUploadToken(editor, uploadToken);
       setMediaHint("图片处理失败，请重试。");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
     }
   }
 
-  function handleVideoFileChange(event: ChangeEvent<HTMLInputElement>): void {
+  async function handleVideoFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -163,12 +291,95 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
       return;
     }
 
+    const uploadToken = createUploadToken();
+    const previewUrl = URL.createObjectURL(file);
+
     editor
       .chain()
       .focus()
-      .insertContent(`\n[视频待上传] ${file.name}（${formatBytes(file.size)}）\n`)
+      .insertContent({
+        type: "video",
+        attrs: {
+          src: previewUrl,
+          title: file.name,
+          widthPercent: 100,
+          align: "center",
+          uploadToken
+        }
+      })
       .run();
-    setMediaHint("视频已通过大小校验并插入占位文本，正式上传接口将在后续接入。");
+
+    try {
+      const videoSource = await readFileAsDataUrl(file);
+
+      replaceMediaSourceByUploadToken(editor, uploadToken, {
+        src: videoSource,
+        title: file.name,
+        uploadToken: null
+      });
+      setMediaHint(null);
+    } catch {
+      removeMediaByUploadToken(editor, uploadToken);
+      setMediaHint("视频处理失败，请重试。");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+    }
+  }
+
+  function handleInsertImageUrl(): void {
+    if (!editor) {
+      return;
+    }
+
+    const url = window.prompt("请输入图片 URL");
+
+    if (!url) {
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setImage({
+        src: url
+      })
+      .run();
+    setMediaHint(null);
+  }
+
+  function handleInsertVideoUrl(): void {
+    if (!editor) {
+      return;
+    }
+
+    const url = window.prompt("请输入视频 URL");
+
+    if (!url) {
+      return;
+    }
+
+    if (isYoutubeUrl(url)) {
+      editor
+        .chain()
+        .focus()
+        .setYoutubeVideo({
+          src: url,
+          width: 640,
+          height: 360
+        })
+        .run();
+      setMediaHint(null);
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .setVideo({
+        src: url
+      })
+      .run();
+    setMediaHint(null);
   }
 
   return (
@@ -223,6 +434,7 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
             }
 
             const url = window.prompt("请输入链接地址");
+
             if (!url) {
               return;
             }
@@ -230,43 +442,13 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
             editor.chain().focus().setLink({ href: url }).run();
           }}
         />
-        <ToolbarButton
-          label="图片URL"
-          disabled={!editor}
-          onClick={() => {
-            if (!editor) {
-              return;
-            }
-
-            const url = window.prompt("请输入图片 URL");
-            if (!url) {
-              return;
-            }
-
-            editor.chain().focus().setImage({ src: url }).run();
-          }}
-        />
+        <ToolbarButton label="图片 URL" disabled={!editor} onClick={handleInsertImageUrl} />
         <ToolbarButton
           label="上传图片"
           disabled={!editor}
           onClick={() => imageInputRef.current?.click()}
         />
-        <ToolbarButton
-          label="视频URL"
-          disabled={!editor}
-          onClick={() => {
-            if (!editor) {
-              return;
-            }
-
-            const url = window.prompt("请输入视频 URL（当前支持 YouTube）");
-            if (!url) {
-              return;
-            }
-
-            editor.chain().focus().setYoutubeVideo({ src: url }).run();
-          }}
-        />
+        <ToolbarButton label="视频 URL" disabled={!editor} onClick={handleInsertVideoUrl} />
         <ToolbarButton
           label="上传视频"
           disabled={!editor}
