@@ -70,6 +70,9 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
+      nodemailer:
+        specifier: ^8.0.4
+        version: 8.0.4
       otplib:
         specifier: ^13.4.0
         version: 13.4.0
@@ -6090,6 +6093,13 @@ packages:
       {
         integrity: sha512-1h5gKZCF+pO/o3Iqt5Jp7wc9rH3eJJ0+nh/CIoiRwjRxde/hAHyLPXYN4V3CqKAbiZPSeJFSWHmJsbkicta0Eg==
       }
+
+  nodemailer@8.0.4:
+    resolution:
+      {
+        integrity: sha512-k+jf6N8PfQJ0Fe8ZhJlgqU5qJU44Lpvp2yvidH3vp1lPnVQMgi4yEEMPXg5eJS1gFIJTVq1NHBk7Ia9ARdSBdQ==
+      }
+    engines: { node: ">=6.0.0" }
 
   normalize-path@3.0.0:
     resolution:
@@ -12247,6 +12257,8 @@ snapshots:
   node-int64@0.4.0: {}
 
   node-releases@2.0.37: {}
+
+  nodemailer@8.0.4: {}
 
   normalize-path@3.0.0: {}
 

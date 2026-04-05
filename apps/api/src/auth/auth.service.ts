@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { randomUUID } from "node:crypto";
 import { authenticator } from "@otplib/preset-default";
+import { AuthMailService } from "./auth-mail.service";
 
 type EmailCodeEntry = {
   code: string;
@@ -44,22 +45,22 @@ export class AuthService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly jwtService: JwtService
+    private readonly jwtService: JwtService,
+    private readonly authMailService: AuthMailService
   ) {}
 
-  async sendEmailCode(
-    email: string
-  ): Promise<{ success: boolean; expiresInSeconds: number; debugCode: string }> {
+  async sendEmailCode(email: string): Promise<{ success: boolean; expiresInSeconds: number }> {
     const ttlSeconds = Number(this.configService.get("AUTH_EMAIL_CODE_TTL_SECONDS") ?? 300);
     const code = this.generateCode();
     const expiresAt = Date.now() + ttlSeconds * 1000;
+    const normalizedEmail = email.toLowerCase();
 
-    this.emailCodeStore.set(email.toLowerCase(), { code, expiresAt });
+    await this.authMailService.sendLoginCode(normalizedEmail, code, ttlSeconds);
+    this.emailCodeStore.set(normalizedEmail, { code, expiresAt });
 
     return {
       success: true,
-      expiresInSeconds: ttlSeconds,
-      debugCode: code
+      expiresInSeconds: ttlSeconds
     };
   }
 
