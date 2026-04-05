@@ -1,4 +1,4 @@
-export type SendEmailCodeResult = {
+﻿export type SendEmailCodeResult = {
   success: boolean;
   expiresInSeconds: number;
 };
@@ -13,6 +13,10 @@ export type EmailLoginResult = {
     id: string;
     email: string;
   };
+};
+
+type RevokeRefreshTokenResult = {
+  success: boolean;
 };
 
 const DEFAULT_API_BASE_URL = "http://localhost:3000";
@@ -30,7 +34,7 @@ async function parseErrorMessage(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { message?: string | string[] };
     if (Array.isArray(body.message)) {
-      return body.message.join("；");
+      return body.message.join("，");
     }
     if (typeof body.message === "string" && body.message.trim()) {
       return body.message;
@@ -73,5 +77,22 @@ export async function loginWithEmailCode(email: string, code: string): Promise<E
   }
 
   const body = (await response.json()) as EmailLoginResult;
+  return body;
+}
+
+export async function revokeRefreshToken(refreshToken: string): Promise<RevokeRefreshTokenResult> {
+  const response = await fetch(`${resolveApiBaseUrl()}/auth/token/revoke`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ refreshToken })
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response));
+  }
+
+  const body = (await response.json()) as RevokeRefreshTokenResult;
   return body;
 }

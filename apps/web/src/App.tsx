@@ -1,10 +1,16 @@
 ﻿import { useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { EmailLoginPage } from "@/pages/email-login-page";
 import { OAuthCallbackPage } from "@/pages/oauth-callback-page";
 import { TodoShellPage } from "@/pages/todo-shell-page";
-import type { EmailLoginResult } from "@/services/auth-api";
-import { loadSession, saveSession, type WebSession } from "@/services/session-storage";
+import { revokeRefreshToken, type EmailLoginResult } from "@/services/auth-api";
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+  type WebSession
+} from "@/services/session-storage";
 
 function toWebSession(payload: EmailLoginResult): WebSession {
   return {
@@ -19,7 +25,26 @@ function toWebSession(payload: EmailLoginResult): WebSession {
 
 function App() {
   const [session, setSession] = useState<WebSession | null>(() => loadSession());
+  const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
+
+  async function handleLogout(): Promise<void> {
+    if (!session || loggingOut) {
+      return;
+    }
+
+    try {
+      setLoggingOut(true);
+      await revokeRefreshToken(session.refreshToken);
+    } catch {
+      // 登出流程以本地会话清理为最终兜底，避免页面卡在登录态。
+    } finally {
+      clearSession();
+      setSession(null);
+      setLoggingOut(false);
+      navigate("/login/email", { replace: true });
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#f6f8f7] text-[#122117]">
@@ -29,7 +54,22 @@ function App() {
             <div className="h-8 w-8 rounded-lg bg-[#0a7a5a]" />
             <span className="text-lg font-semibold tracking-tight">TodoList</span>
           </div>
-          <span className="text-sm text-[#3a5a4a]">{session ? session.user.email : "未登录"}</span>
+          {session ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-[#3a5a4a]">{session.user.email}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleLogout}
+                disabled={loggingOut}
+              >
+                {loggingOut ? "退出中..." : "退出登录"}
+              </Button>
+            </div>
+          ) : (
+            <span className="text-sm text-[#3a5a4a]">未登录</span>
+          )}
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl px-4 py-8">
