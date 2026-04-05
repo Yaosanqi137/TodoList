@@ -20,6 +20,7 @@
     "@nestjs/testing": "^11.1.18",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.5.2",
+    "@types/nodemailer": "^8.0.0",
     "@types/passport-github2": "^1.2.9",
     "@types/passport-oauth2": "^1.8.0",
     "@types/supertest": "^7.2.0",

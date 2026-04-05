@@ -104,6 +104,9 @@ importers:
       "@types/node":
         specifier: ^25.5.2
         version: 25.5.2
+      "@types/nodemailer":
+        specifier: ^8.0.0
+        version: 8.0.0
       "@types/passport-github2":
         specifier: ^1.2.9
         version: 1.2.9
@@ -2706,6 +2709,12 @@ packages:
     resolution:
       {
         integrity: sha512-tO4ZIRKNC+MDWV4qKVZe3Ql/woTnmHDr5JD8UI5hn2pwBrHEwOEMZK7WlNb5RKB6EoJ02gwmQS9OrjuFnZYdpg==
+      }
+
+  "@types/nodemailer@8.0.0":
+    resolution:
+      {
+        integrity: sha512-fyf8jWULsCo0d0BuoQ75i6IeoHs47qcqxWc7yUdUcV0pOZGjUTTOvwdG1PRXUDqN/8A64yQdQdnA2pZgcdi+cA==
       }
 
   "@types/oauth@0.9.6":
@@ -10165,6 +10174,10 @@ snapshots:
   "@types/node@25.5.2":
     dependencies:
       undici-types: 7.18.2
+
+  "@types/nodemailer@8.0.0":
+    dependencies:
+      "@types/node": 25.5.2
 
   "@types/oauth@0.9.6":
     dependencies:
