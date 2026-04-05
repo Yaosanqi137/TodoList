@@ -3,7 +3,7 @@ import imageCompression from "browser-image-compression";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import Link from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
-import { EditorContent, type JSONContent, useEditor } from "@tiptap/react";
+import { EditorContent, type JSONContent, useEditor, useEditorState } from "@tiptap/react";
 import { ResizableImage } from "@/extensions/resizable-image";
 import { ResizableVideo } from "@/extensions/resizable-video";
 import { ResizableYoutube } from "@/extensions/resizable-youtube";
@@ -26,7 +26,37 @@ type ToolbarButtonProps = {
   onClick: () => void;
 };
 
-function ToolbarButton({ label, disabled = false, active = false, onClick }: ToolbarButtonProps) {
+type ToolbarState = {
+  bold: boolean;
+  italic: boolean;
+  heading: boolean;
+  bulletList: boolean;
+  link: boolean;
+};
+
+type EditorToolbarProps = {
+  editor: TiptapEditor | null;
+  onInsertImageUrl: () => void;
+  onOpenImageUpload: () => void;
+  onInsertVideoUrl: () => void;
+  onOpenVideoUpload: () => void;
+  onSetLink: () => void;
+};
+
+const DEFAULT_TOOLBAR_STATE: ToolbarState = {
+  bold: false,
+  italic: false,
+  heading: false,
+  bulletList: false,
+  link: false
+};
+
+const ToolbarButton = memo(function ToolbarButton({
+  label,
+  disabled = false,
+  active = false,
+  onClick
+}: ToolbarButtonProps) {
   return (
     <button
       type="button"
@@ -43,7 +73,83 @@ function ToolbarButton({ label, disabled = false, active = false, onClick }: Too
       {label}
     </button>
   );
-}
+});
+
+const EditorToolbar = memo(function EditorToolbar({
+  editor,
+  onInsertImageUrl,
+  onOpenImageUpload,
+  onInsertVideoUrl,
+  onOpenVideoUpload,
+  onSetLink
+}: EditorToolbarProps) {
+  const toolbarState =
+    useEditorState({
+      editor,
+      selector: ({ editor: currentEditor }) => {
+        if (!currentEditor) {
+          return DEFAULT_TOOLBAR_STATE;
+        }
+
+        return {
+          bold: currentEditor.isActive("bold"),
+          italic: currentEditor.isActive("italic"),
+          heading: currentEditor.isActive("heading", { level: 2 }),
+          bulletList: currentEditor.isActive("bulletList"),
+          link: currentEditor.isActive("link")
+        };
+      }
+    }) ?? DEFAULT_TOOLBAR_STATE;
+
+  const disabled = !editor;
+
+  return (
+    <div className="flex flex-wrap gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-2 py-2">
+      <ToolbarButton
+        label={"\u7c97\u4f53"}
+        disabled={disabled}
+        active={toolbarState.bold}
+        onClick={() => editor?.chain().focus().toggleBold().run()}
+      />
+      <ToolbarButton
+        label={"\u659c\u4f53"}
+        disabled={disabled}
+        active={toolbarState.italic}
+        onClick={() => editor?.chain().focus().toggleItalic().run()}
+      />
+      <ToolbarButton
+        label={"\u6807\u9898"}
+        disabled={disabled}
+        active={toolbarState.heading}
+        onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+      />
+      <ToolbarButton
+        label={"\u65e0\u5e8f\u5217\u8868"}
+        disabled={disabled}
+        active={toolbarState.bulletList}
+        onClick={() => editor?.chain().focus().toggleBulletList().run()}
+      />
+      <ToolbarButton
+        label={"\u94fe\u63a5"}
+        disabled={disabled}
+        active={toolbarState.link}
+        onClick={onSetLink}
+      />
+      <ToolbarButton label={"\u56fe\u7247 URL"} disabled={disabled} onClick={onInsertImageUrl} />
+      <ToolbarButton
+        label={"\u4e0a\u4f20\u56fe\u7247"}
+        disabled={disabled}
+        onClick={onOpenImageUpload}
+      />
+      <ToolbarButton label={"\u89c6\u9891 URL"} disabled={disabled} onClick={onInsertVideoUrl} />
+      <ToolbarButton
+        label={"\u4e0a\u4f20\u89c6\u9891"}
+        disabled={disabled}
+        onClick={onOpenVideoUpload}
+      />
+    </div>
+  );
+});
 
 function resolveEditorContent(
   valueJson: string | null,
@@ -231,6 +337,7 @@ export const TaskRichEditor = memo(function TaskRichEditor({
           "min-h-40 rounded-b-lg border border-t-0 border-input bg-background px-3 py-2 text-sm text-foreground outline-none"
       }
     },
+    shouldRerenderOnTransaction: false,
     onUpdate({ editor: currentEditor }) {
       scheduleEditorChange(currentEditor);
     },
@@ -474,62 +581,26 @@ export const TaskRichEditor = memo(function TaskRichEditor({
         onChange={handleVideoFileChange}
       />
 
-      <div className="flex flex-wrap gap-1 rounded-t-lg border border-input border-b-0 bg-muted/30 px-2 py-2">
-        <ToolbarButton
-          label="粗体"
-          disabled={!editor}
-          active={editor?.isActive("bold")}
-          onClick={() => editor?.chain().focus().toggleBold().run()}
-        />
-        <ToolbarButton
-          label="斜体"
-          disabled={!editor}
-          active={editor?.isActive("italic")}
-          onClick={() => editor?.chain().focus().toggleItalic().run()}
-        />
-        <ToolbarButton
-          label="标题"
-          disabled={!editor}
-          active={editor?.isActive("heading", { level: 2 })}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-        />
-        <ToolbarButton
-          label="无序列表"
-          disabled={!editor}
-          active={editor?.isActive("bulletList")}
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
-        />
-        <ToolbarButton
-          label="链接"
-          disabled={!editor}
-          active={editor?.isActive("link")}
-          onClick={() => {
-            if (!editor) {
-              return;
-            }
+      <EditorToolbar
+        editor={editor}
+        onInsertImageUrl={handleInsertImageUrl}
+        onOpenImageUpload={() => imageInputRef.current?.click()}
+        onInsertVideoUrl={handleInsertVideoUrl}
+        onOpenVideoUpload={() => videoInputRef.current?.click()}
+        onSetLink={() => {
+          if (!editor) {
+            return;
+          }
 
-            const url = window.prompt("请输入链接地址");
+          const url = window.prompt("\u8bf7\u8f93\u5165\u94fe\u63a5\u5730\u5740");
 
-            if (!url) {
-              return;
-            }
+          if (!url) {
+            return;
+          }
 
-            editor.chain().focus().setLink({ href: url }).run();
-          }}
-        />
-        <ToolbarButton label="图片 URL" disabled={!editor} onClick={handleInsertImageUrl} />
-        <ToolbarButton
-          label="上传图片"
-          disabled={!editor}
-          onClick={() => imageInputRef.current?.click()}
-        />
-        <ToolbarButton label="视频 URL" disabled={!editor} onClick={handleInsertVideoUrl} />
-        <ToolbarButton
-          label="上传视频"
-          disabled={!editor}
-          onClick={() => videoInputRef.current?.click()}
-        />
-      </div>
+          editor.chain().focus().setLink({ href: url }).run();
+        }}
+      />
       <EditorContent editor={editor} />
       {mediaHint ? <p className="mt-2 text-xs text-muted-foreground">{mediaHint}</p> : null}
     </div>
