@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { TaskRichEditor } from "@/components/task-rich-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { LocalTaskPriority, LocalTaskStatus } from "@/services/local-db";
 import {
   createLocalTask,
   deleteLocalTask,
@@ -9,7 +11,6 @@ import {
   listLocalTasksByUser,
   updateLocalTask
 } from "@/services/local-task-repo";
-import type { LocalTaskPriority, LocalTaskStatus } from "@/services/local-db";
 import type { WebSession } from "@/services/session-storage";
 
 type TodoShellPageProps = {
@@ -18,6 +19,7 @@ type TodoShellPageProps = {
 
 type TaskFormState = {
   title: string;
+  contentJson: string | null;
   contentText: string;
   priority: LocalTaskPriority;
   status: LocalTaskStatus;
@@ -26,6 +28,7 @@ type TaskFormState = {
 
 const DEFAULT_FORM_STATE: TaskFormState = {
   title: "",
+  contentJson: null,
   contentText: "",
   priority: "MEDIUM",
   status: "TODO",
@@ -129,6 +132,7 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
 
     setFormState({
       title: selectedTask.title,
+      contentJson: selectedTask.contentJson,
       contentText: selectedTask.contentText ?? "",
       priority: selectedTask.priority,
       status: selectedTask.status,
@@ -170,7 +174,7 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
         id: selectedTaskId,
         title: formState.title,
         contentText: formState.contentText || null,
-        contentJson: null,
+        contentJson: formState.contentJson,
         priority: formState.priority,
         status: formState.status,
         ddlAt: parseDatetimeLocalValue(formState.ddlInput)
@@ -359,17 +363,19 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
 
             <label className="block text-sm text-muted-foreground">
               任务内容
-              <textarea
-                className="mt-1 min-h-40 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-                value={formState.contentText}
-                onChange={(event) =>
-                  setFormState((previous) => ({
-                    ...previous,
-                    contentText: event.target.value
-                  }))
-                }
-                placeholder="输入任务详情（当前为本地文本版，富文本将在后续迭代接入）"
-              />
+              <div className="mt-1">
+                <TaskRichEditor
+                  valueJson={formState.contentJson}
+                  textFallback={formState.contentText}
+                  onChange={(payload) =>
+                    setFormState((previous) => ({
+                      ...previous,
+                      contentJson: payload.json,
+                      contentText: payload.text
+                    }))
+                  }
+                />
+              </div>
             </label>
           </div>
         )}
