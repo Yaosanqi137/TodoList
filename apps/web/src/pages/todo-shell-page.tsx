@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   CheckCircle2,
@@ -53,6 +53,8 @@ type FeedbackNotice = {
   message: string;
   tone: "success" | "error";
 };
+
+type StorageQuotaSnapshot = Awaited<ReturnType<typeof getStorageQuotaSnapshot>>;
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 500;
 
@@ -265,6 +267,277 @@ function getSyncSummary(status: SyncEngineStatus): {
     iconClassName: "text-emerald-600"
   };
 }
+
+type SyncStatusCardProps = {
+  syncStatus: SyncEngineStatus;
+  onTriggerSync: () => void;
+};
+
+const SyncStatusCard = memo(function SyncStatusCard({
+  syncStatus,
+  onTriggerSync
+}: SyncStatusCardProps) {
+  const syncSummary = getSyncSummary(syncStatus);
+  const SyncSummaryIcon = syncSummary.icon;
+
+  return (
+    <section
+      className={cn(
+        "rounded-[1.75rem] border px-4 py-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.38)] backdrop-blur md:px-5",
+        syncSummary.accentClassName
+      )}
+    >
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-white/70 p-2.5 shadow-sm ring-1 ring-black/5">
+            <SyncSummaryIcon className={cn("h-5 w-5", syncSummary.iconClassName)} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">{syncSummary.title}</p>
+            <p className="text-sm leading-6 text-current/80">{syncSummary.description}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
+            待上传 {syncStatus.pendingCount}
+          </span>
+          <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
+            云端待合并 {syncStatus.pendingRemoteCount}
+          </span>
+          {syncStatus.blockedCount > 0 ? (
+            <span className="rounded-full border border-destructive/20 bg-white/70 px-3 py-1 text-xs text-destructive">
+              阻塞 {syncStatus.blockedCount}
+            </span>
+          ) : null}
+          <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
+            上次成功 {formatSyncTimestamp(syncStatus.lastSyncedAt)}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-current/15 bg-white/70 text-current hover:bg-white"
+            onClick={onTriggerSync}
+            disabled={!syncStatus.isOnline || syncStatus.phase === "syncing"}
+          >
+            {syncStatus.phase === "syncing" ? "同步中..." : "立即同步"}
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+});
+
+type TaskListPanelProps = {
+  tasks: LocalTaskRecord[];
+  selectedTaskId: string | null;
+  quotaSnapshot: StorageQuotaSnapshot | null;
+  creating: boolean;
+  onCreateTask: () => void;
+  onSelectTask: (taskId: string) => void;
+};
+
+const TaskListPanel = memo(function TaskListPanel({
+  tasks,
+  selectedTaskId,
+  quotaSnapshot,
+  creating,
+  onCreateTask,
+  onSelectTask
+}: TaskListPanelProps) {
+  return (
+    <section className="rounded-2xl border border-border bg-card/90 p-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.6)] backdrop-blur">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-foreground">任务列表</h2>
+        <Button
+          type="button"
+          size="sm"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={onCreateTask}
+          disabled={creating}
+        >
+          {creating ? "创建中..." : "新建任务"}
+        </Button>
+      </div>
+
+      {quotaSnapshot ? (
+        <p
+          className={cn(
+            "mb-3 text-xs",
+            quotaSnapshot.usedPercent >= 85 ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          空间占用（估算）：{formatStorageSize(quotaSnapshot.usedBytes)} /{" "}
+          {formatStorageSize(quotaSnapshot.quotaBytes)}（{quotaSnapshot.usedPercent.toFixed(1)}%）
+        </p>
+      ) : null}
+
+      {tasks.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          还没有任务，点击右上角“新建任务”。
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map((task) => {
+            const isActive = task.id === selectedTaskId;
+            return (
+              <button
+                key={task.id}
+                type="button"
+                className={cn(
+                  "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                  isActive
+                    ? "border-primary/45 bg-primary/10"
+                    : "border-border bg-background hover:border-primary/25 hover:bg-primary/5"
+                )}
+                onClick={() => onSelectTask(task.id)}
+              >
+                <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {STATUS_LABEL_MAP[task.status]} · {PRIORITY_LABEL_MAP[task.priority]} · 更新于{" "}
+                  {formatUpdatedAt(task.updatedAt)}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+});
+
+type TaskDetailPanelProps = {
+  selectedTaskId: string | null;
+  selectedTask: LocalTaskRecord | undefined;
+  formState: TaskFormState;
+  editorKey: string;
+  editorSeedState: TaskEditorState;
+  saving: boolean;
+  deleting: boolean;
+  onSaveTask: () => void;
+  onDeleteTask: () => void;
+  onTitleChange: (value: string) => void;
+  onStatusChange: (value: LocalTaskStatus) => void;
+  onPriorityChange: (value: LocalTaskPriority) => void;
+  onDdlChange: (value: string) => void;
+  onEditorChange: (payload: { json: string | null; text: string }) => void;
+};
+
+const TaskDetailPanel = memo(function TaskDetailPanel({
+  selectedTaskId,
+  selectedTask,
+  formState,
+  editorKey,
+  editorSeedState,
+  saving,
+  deleting,
+  onSaveTask,
+  onDeleteTask,
+  onTitleChange,
+  onStatusChange,
+  onPriorityChange,
+  onDdlChange,
+  onEditorChange
+}: TaskDetailPanelProps) {
+  return (
+    <section className="rounded-2xl border border-border bg-card/90 p-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.6)] backdrop-blur">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-foreground">任务详情</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onSaveTask}
+            disabled={!selectedTaskId || saving}
+          >
+            {saving ? "保存中..." : "保存"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-destructive/50 text-destructive hover:bg-destructive/10"
+            onClick={onDeleteTask}
+            disabled={!selectedTaskId || deleting}
+          >
+            {deleting ? "删除中..." : "删除"}
+          </Button>
+        </div>
+      </div>
+
+      {!selectedTaskId || !selectedTask ? (
+        <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+          请选择一个任务进行编辑。
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-sm text-muted-foreground">
+            任务标题
+            <input
+              className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+              value={formState.title}
+              onChange={(event) => onTitleChange(event.target.value)}
+              placeholder="请输入任务标题"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm text-muted-foreground">
+              状态
+              <select
+                className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+                value={formState.status}
+                onChange={(event) => onStatusChange(event.target.value as LocalTaskStatus)}
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm text-muted-foreground">
+              优先级
+              <select
+                className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+                value={formState.priority}
+                onChange={(event) => onPriorityChange(event.target.value as LocalTaskPriority)}
+              >
+                {PRIORITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="block text-sm text-muted-foreground">
+            截止时间
+            <input
+              type="datetime-local"
+              className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+              value={formState.ddlInput}
+              onChange={(event) => onDdlChange(event.target.value)}
+            />
+          </label>
+
+          <div className="block text-sm text-muted-foreground">
+            <p>任务内容</p>
+            <div className="mt-1">
+              <TaskRichEditor
+                key={editorKey}
+                valueJson={editorSeedState.contentJson}
+                textFallback={editorSeedState.contentText}
+                onChange={onEditorChange}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+});
 
 export function TodoShellPage({ session }: TodoShellPageProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -572,6 +845,38 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
     [scheduleDraftPersist]
   );
 
+  const handleSelectTask = useCallback((taskId: string): void => {
+    setSelectedTaskId(taskId);
+  }, []);
+
+  const handleTitleChange = useCallback((value: string): void => {
+    setFormState((previous) => ({
+      ...previous,
+      title: value
+    }));
+  }, []);
+
+  const handleStatusChange = useCallback((value: LocalTaskStatus): void => {
+    setFormState((previous) => ({
+      ...previous,
+      status: value
+    }));
+  }, []);
+
+  const handlePriorityChange = useCallback((value: LocalTaskPriority): void => {
+    setFormState((previous) => ({
+      ...previous,
+      priority: value
+    }));
+  }, []);
+
+  const handleDdlChange = useCallback((value: string): void => {
+    setFormState((previous) => ({
+      ...previous,
+      ddlInput: value
+    }));
+  }, []);
+
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent): void {
       const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s";
@@ -607,235 +912,40 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   }
 
   const taskList = tasks ?? [];
-  const syncSummary = getSyncSummary(syncStatus);
-  const SyncSummaryIcon = syncSummary.icon;
+  const quotaPanelSnapshot = quotaSnapshot ?? null;
 
   return (
     <>
       {renderFeedbackBanner()}
       <div className="space-y-4">
-        <section
-          className={cn(
-            "rounded-[1.75rem] border px-4 py-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.38)] backdrop-blur md:px-5",
-            syncSummary.accentClassName
-          )}
-        >
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-white/70 p-2.5 shadow-sm ring-1 ring-black/5">
-                <SyncSummaryIcon className={cn("h-5 w-5", syncSummary.iconClassName)} />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold">{syncSummary.title}</p>
-                <p className="text-sm leading-6 text-current/80">{syncSummary.description}</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
-                待上传 {syncStatus.pendingCount}
-              </span>
-              <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
-                云端待合并 {syncStatus.pendingRemoteCount}
-              </span>
-              {syncStatus.blockedCount > 0 ? (
-                <span className="rounded-full border border-destructive/20 bg-white/70 px-3 py-1 text-xs text-destructive">
-                  阻塞 {syncStatus.blockedCount}
-                </span>
-              ) : null}
-              <span className="rounded-full border border-current/10 bg-white/70 px-3 py-1 text-xs text-current/80">
-                上次成功 {formatSyncTimestamp(syncStatus.lastSyncedAt)}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-current/15 bg-white/70 text-current hover:bg-white"
-                onClick={triggerSync}
-                disabled={!syncStatus.isOnline || syncStatus.phase === "syncing"}
-              >
-                {syncStatus.phase === "syncing" ? "同步中..." : "立即同步"}
-              </Button>
-            </div>
-          </div>
-        </section>
+        <SyncStatusCard syncStatus={syncStatus} onTriggerSync={triggerSync} />
 
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <section className="rounded-2xl border border-border bg-card/90 p-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.6)] backdrop-blur">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-foreground">任务列表</h2>
-              <Button
-                type="button"
-                size="sm"
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={handleCreateTask}
-                disabled={creating}
-              >
-                {creating ? "创建中..." : "新建任务"}
-              </Button>
-            </div>
+          <TaskListPanel
+            tasks={taskList}
+            selectedTaskId={selectedTaskId}
+            quotaSnapshot={quotaPanelSnapshot}
+            creating={creating}
+            onCreateTask={handleCreateTask}
+            onSelectTask={handleSelectTask}
+          />
 
-            {quotaSnapshot ? (
-              <p
-                className={cn(
-                  "mb-3 text-xs",
-                  quotaSnapshot.usedPercent >= 85 ? "text-destructive" : "text-muted-foreground"
-                )}
-              >
-                空间占用（估算）：{formatStorageSize(quotaSnapshot.usedBytes)} /{" "}
-                {formatStorageSize(quotaSnapshot.quotaBytes)}（
-                {quotaSnapshot.usedPercent.toFixed(1)}
-                %）
-              </p>
-            ) : null}
-
-            {taskList.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-                还没有任务，点击右上角“新建任务”。
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {taskList.map((task) => {
-                  const isActive = task.id === selectedTaskId;
-                  return (
-                    <button
-                      key={task.id}
-                      type="button"
-                      className={cn(
-                        "w-full rounded-xl border px-3 py-2 text-left transition-colors",
-                        isActive
-                          ? "border-primary/45 bg-primary/10"
-                          : "border-border bg-background hover:border-primary/25 hover:bg-primary/5"
-                      )}
-                      onClick={() => setSelectedTaskId(task.id)}
-                    >
-                      <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {STATUS_LABEL_MAP[task.status]} · {PRIORITY_LABEL_MAP[task.priority]} ·
-                        更新于 {formatUpdatedAt(task.updatedAt)}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-border bg-card/90 p-4 shadow-[0_24px_70px_-42px_hsl(var(--primary)/0.6)] backdrop-blur">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-foreground">任务详情</h2>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleSaveTask}
-                  disabled={!selectedTaskId || saving}
-                >
-                  {saving ? "保存中..." : "保存"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                  onClick={handleDeleteTask}
-                  disabled={!selectedTaskId || deleting}
-                >
-                  {deleting ? "删除中..." : "删除"}
-                </Button>
-              </div>
-            </div>
-
-            {!selectedTaskId || !selectedTask ? (
-              <p className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-                请选择一个任务进行编辑。
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <label className="block text-sm text-muted-foreground">
-                  任务标题
-                  <input
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-                    value={formState.title}
-                    onChange={(event) =>
-                      setFormState((previous) => ({
-                        ...previous,
-                        title: event.target.value
-                      }))
-                    }
-                    placeholder="请输入任务标题"
-                  />
-                </label>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm text-muted-foreground">
-                    状态
-                    <select
-                      className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-                      value={formState.status}
-                      onChange={(event) =>
-                        setFormState((previous) => ({
-                          ...previous,
-                          status: event.target.value as LocalTaskStatus
-                        }))
-                      }
-                    >
-                      {STATUS_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm text-muted-foreground">
-                    优先级
-                    <select
-                      className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-                      value={formState.priority}
-                      onChange={(event) =>
-                        setFormState((previous) => ({
-                          ...previous,
-                          priority: event.target.value as LocalTaskPriority
-                        }))
-                      }
-                    >
-                      {PRIORITY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <label className="block text-sm text-muted-foreground">
-                  截止时间
-                  <input
-                    type="datetime-local"
-                    className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
-                    value={formState.ddlInput}
-                    onChange={(event) =>
-                      setFormState((previous) => ({
-                        ...previous,
-                        ddlInput: event.target.value
-                      }))
-                    }
-                  />
-                </label>
-
-                <div className="block text-sm text-muted-foreground">
-                  <p>任务内容</p>
-                  <div className="mt-1">
-                    <TaskRichEditor
-                      key={editorKey}
-                      valueJson={editorSeedState.contentJson}
-                      textFallback={editorSeedState.contentText}
-                      onChange={handleEditorChange}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
+          <TaskDetailPanel
+            selectedTaskId={selectedTaskId}
+            selectedTask={selectedTask}
+            formState={formState}
+            editorKey={editorKey}
+            editorSeedState={editorSeedState}
+            saving={saving}
+            deleting={deleting}
+            onSaveTask={handleSaveTask}
+            onDeleteTask={handleDeleteTask}
+            onTitleChange={handleTitleChange}
+            onStatusChange={handleStatusChange}
+            onPriorityChange={handlePriorityChange}
+            onDdlChange={handleDdlChange}
+            onEditorChange={handleEditorChange}
+          />
         </div>
       </div>
     </>
