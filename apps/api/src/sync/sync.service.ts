@@ -1,6 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { SyncPullQueryDto } from "./dto/sync-pull.dto";
 import { SyncPushDto, SyncPushOperationDto } from "./dto/sync-push.dto";
 
 export type SyncPushItemStatus = "accepted" | "duplicate" | "failed";
@@ -24,9 +25,78 @@ type ExistingOperationRecord = {
   serverTs: Date;
 };
 
+type SyncPullCursorState = {
+  serverTs: string;
+  opId: string;
+};
+
+type SyncPullOperationRecord = {
+  opId: string;
+  entityId: string;
+  entityType: string;
+  action: string;
+  payload: Prisma.JsonValue | null;
+  clientTs: Date;
+  deviceId: string;
+  serverTs: Date;
+};
+
+export type SyncPullItem = {
+  opId: string;
+  entityId: string;
+  entityType: string;
+  action: string;
+  payload: string | null;
+  clientTs: number;
+  deviceId: string;
+  serverTs: string;
+};
+
+export type SyncPullResponse = {
+  items: SyncPullItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
 @Injectable()
 export class SyncService {
   constructor(private readonly prismaService: PrismaService) {}
+
+  async pullOperations(userId: string, query: SyncPullQueryDto): Promise<SyncPullResponse> {
+    const limit = query.limit ?? 100;
+    const cursor = this.parseCursor(query.cursor);
+
+    const operations = (await this.prismaService.syncOperation.findMany({
+      where: this.buildPullWhereInput(userId, cursor),
+      orderBy: [{ serverTs: "asc" }, { opId: "asc" }],
+      take: limit + 1,
+      select: {
+        opId: true,
+        entityId: true,
+        entityType: true,
+        action: true,
+        payload: true,
+        clientTs: true,
+        deviceId: true,
+        serverTs: true
+      }
+    })) as SyncPullOperationRecord[];
+
+    const hasMore = operations.length > limit;
+    const pageItems = hasMore ? operations.slice(0, limit) : operations;
+    const lastOperation = pageItems.at(-1);
+
+    return {
+      items: pageItems.map((operation) => this.serializePullItem(operation)),
+      nextCursor: lastOperation
+        ? this.encodeCursor({
+            serverTs: lastOperation.serverTs.toISOString(),
+            opId: lastOperation.opId
+          })
+        : (query.cursor ?? null),
+      hasMore
+    };
+  }
 
   async pushOperations(userId: string, body: SyncPushDto): Promise<SyncPushResponse> {
     const existingOperations = await this.loadExistingOperations(userId, body.operations);
@@ -137,6 +207,100 @@ export class SyncService {
         operation
       ])
     );
+  }
+
+  private buildPullWhereInput(
+    userId: string,
+    cursor: SyncPullCursorState | null
+  ): Prisma.SyncOperationWhereInput {
+    if (!cursor) {
+      return { userId };
+    }
+
+    const cursorDate = new Date(cursor.serverTs);
+
+    return {
+      userId,
+      // 同一毫秒内可能有多条操作，必须使用 opId 作为二级游标来保证稳定分页。
+      OR: [
+        {
+          serverTs: {
+            gt: cursorDate
+          }
+        },
+        {
+          serverTs: cursorDate,
+          opId: {
+            gt: cursor.opId
+          }
+        }
+      ]
+    };
+  }
+
+  private serializePullItem(operation: SyncPullOperationRecord): SyncPullItem {
+    return {
+      opId: operation.opId,
+      entityId: operation.entityId,
+      entityType: operation.entityType,
+      action: operation.action,
+      payload: this.serializePayload(operation.payload),
+      clientTs: operation.clientTs.getTime(),
+      deviceId: operation.deviceId,
+      serverTs: operation.serverTs.toISOString()
+    };
+  }
+
+  private serializePayload(payload: Prisma.JsonValue | null): string | null {
+    if (payload === null) {
+      return null;
+    }
+
+    if (typeof payload === "string") {
+      return payload;
+    }
+
+    return JSON.stringify(payload);
+  }
+
+  private parseCursor(cursor: string | undefined): SyncPullCursorState | null {
+    if (!cursor) {
+      return null;
+    }
+
+    let decodedCursor: unknown;
+    try {
+      decodedCursor = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    } catch {
+      throw new BadRequestException("Invalid sync cursor");
+    }
+
+    if (typeof decodedCursor !== "object" || decodedCursor === null) {
+      throw new BadRequestException("Invalid sync cursor");
+    }
+
+    const cursorRecord = decodedCursor as {
+      serverTs?: unknown;
+      opId?: unknown;
+    };
+
+    if (
+      typeof cursorRecord.serverTs !== "string" ||
+      typeof cursorRecord.opId !== "string" ||
+      Number.isNaN(Date.parse(cursorRecord.serverTs)) ||
+      cursorRecord.opId.trim().length === 0
+    ) {
+      throw new BadRequestException("Invalid sync cursor");
+    }
+
+    return {
+      serverTs: cursorRecord.serverTs,
+      opId: cursorRecord.opId
+    };
+  }
+
+  private encodeCursor(cursor: SyncPullCursorState): string {
+    return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
   }
 
   private isDuplicateOpIdError(error: unknown): boolean {

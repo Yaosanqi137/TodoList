@@ -13,9 +13,65 @@ type SyncOperationRecord = {
   entityType: string;
   entityId: string;
   action: string;
-  payload?: string;
+  payload: string | null;
   clientTs: Date;
   serverTs: Date;
+};
+
+type SyncOperationSelect = {
+  opId?: true;
+  entityId?: true;
+  entityType?: true;
+  action?: true;
+  payload?: true;
+  clientTs?: true;
+  deviceId?: true;
+  serverTs?: true;
+};
+
+type SyncOperationFindManyArgs = {
+  where: {
+    userId: string;
+    opId?: {
+      in: string[];
+    };
+    OR?: Array<
+      | {
+          serverTs: {
+            gt: Date;
+          };
+        }
+      | {
+          serverTs: Date;
+          opId: {
+            gt: string;
+          };
+        }
+    >;
+  };
+  select: SyncOperationSelect;
+  orderBy?: Array<{
+    serverTs?: "asc" | "desc";
+    opId?: "asc" | "desc";
+  }>;
+  take?: number;
+};
+
+type SyncOperationCreateArgs = {
+  data: {
+    opId: string;
+    userId: string;
+    deviceId: string;
+    entityType: string;
+    entityId: string;
+    action: string;
+    payload?: string;
+    clientTs: Date;
+  };
+  select: {
+    opId: true;
+    serverTs: true;
+  };
 };
 
 class InMemoryPrismaService {
@@ -23,44 +79,60 @@ class InMemoryPrismaService {
   private syncOperations: SyncOperationRecord[] = [];
 
   readonly syncOperation = {
-    findMany: async (args: {
-      where: {
-        userId: string;
-        opId: {
-          in: string[];
-        };
-      };
-      select: {
-        opId: true;
-        serverTs: true;
-      };
-    }) => {
-      return this.syncOperations
-        .filter(
-          (item) => item.userId === args.where.userId && args.where.opId.in.includes(item.opId)
-        )
-        .map((item) => ({
-          opId: item.opId,
-          serverTs: item.serverTs
-        }));
+    findMany: async (args: SyncOperationFindManyArgs) => {
+      let items = this.syncOperations.filter((item) => item.userId === args.where.userId);
+
+      if (args.where.opId?.in) {
+        items = items.filter((item) => args.where.opId?.in.includes(item.opId));
+      }
+
+      if (args.where.OR && args.where.OR.length > 0) {
+        items = items.filter((item) =>
+          args.where.OR?.some((condition) => {
+            if ("gt" in condition.serverTs) {
+              return item.serverTs.getTime() > condition.serverTs.gt.getTime();
+            }
+
+            if ("opId" in condition) {
+              return (
+                item.serverTs.getTime() === condition.serverTs.getTime() &&
+                item.opId > condition.opId.gt
+              );
+            }
+
+            return false;
+          })
+        );
+      }
+
+      if (args.orderBy && args.orderBy.length > 0) {
+        items = [...items].sort((left, right) => {
+          for (const orderRule of args.orderBy ?? []) {
+            if (orderRule.serverTs) {
+              const diff = left.serverTs.getTime() - right.serverTs.getTime();
+              if (diff !== 0) {
+                return orderRule.serverTs === "asc" ? diff : -diff;
+              }
+            }
+
+            if (orderRule.opId) {
+              const diff = left.opId.localeCompare(right.opId);
+              if (diff !== 0) {
+                return orderRule.opId === "asc" ? diff : -diff;
+              }
+            }
+          }
+
+          return 0;
+        });
+      }
+
+      const limitedItems = args.take ? items.slice(0, args.take) : items;
+
+      return limitedItems.map((item) => this.pickSelectedFields(item, args.select));
     },
 
-    create: async (args: {
-      data: {
-        opId: string;
-        userId: string;
-        deviceId: string;
-        entityType: string;
-        entityId: string;
-        action: string;
-        payload?: string;
-        clientTs: Date;
-      };
-      select: {
-        opId: true;
-        serverTs: true;
-      };
-    }) => {
+    create: async (args: SyncOperationCreateArgs) => {
       const createdOperation: SyncOperationRecord = {
         id: `sync_${this.syncOperationIdSequence++}`,
         opId: args.data.opId,
@@ -69,7 +141,7 @@ class InMemoryPrismaService {
         entityType: args.data.entityType,
         entityId: args.data.entityId,
         action: args.data.action,
-        payload: args.data.payload,
+        payload: args.data.payload ?? null,
         clientTs: args.data.clientTs,
         serverTs: new Date()
       };
@@ -85,6 +157,33 @@ class InMemoryPrismaService {
 
   getOperationCount(): number {
     return this.syncOperations.length;
+  }
+
+  seedOperations(records: Array<Omit<SyncOperationRecord, "id">>): void {
+    for (const record of records) {
+      this.syncOperations.push({
+        ...record,
+        id: `sync_${this.syncOperationIdSequence++}`
+      });
+    }
+  }
+
+  private pickSelectedFields(
+    item: SyncOperationRecord,
+    select: SyncOperationSelect
+  ): Partial<SyncOperationRecord> {
+    const result: Record<string, unknown> = {};
+
+    for (const key of Object.keys(select) as Array<keyof SyncOperationSelect>) {
+      if (!select[key]) {
+        continue;
+      }
+
+      const recordKey = key as keyof SyncOperationRecord;
+      result[recordKey] = item[recordKey];
+    }
+
+    return result as Partial<SyncOperationRecord>;
   }
 }
 
@@ -229,5 +328,92 @@ describe("SyncController (integration)", () => {
       })
     );
     expect(prismaService.getOperationCount()).toBe(3);
+  });
+
+  it("should pull operations incrementally with a stable cursor", async () => {
+    prismaService.seedOperations([
+      {
+        opId: "pull-op-1",
+        userId: "user-pull",
+        deviceId: "device-c",
+        entityType: "TASK",
+        entityId: "task-10",
+        action: "CREATE",
+        payload: '{"title":"任务甲"}',
+        clientTs: new Date("2026-04-06T10:00:00.000Z"),
+        serverTs: new Date("2026-04-06T10:10:00.000Z")
+      },
+      {
+        opId: "pull-op-2",
+        userId: "user-pull",
+        deviceId: "device-c",
+        entityType: "TASK",
+        entityId: "task-10",
+        action: "UPDATE",
+        payload: '{"title":"任务甲-更新"}',
+        clientTs: new Date("2026-04-06T10:01:00.000Z"),
+        serverTs: new Date("2026-04-06T10:10:00.000Z")
+      },
+      {
+        opId: "pull-op-3",
+        userId: "user-pull",
+        deviceId: "device-c",
+        entityType: "TASK",
+        entityId: "task-11",
+        action: "CREATE",
+        payload: '{"title":"任务乙"}',
+        clientTs: new Date("2026-04-06T10:02:00.000Z"),
+        serverTs: new Date("2026-04-06T10:11:00.000Z")
+      },
+      {
+        opId: "pull-op-other-user",
+        userId: "user-other",
+        deviceId: "device-z",
+        entityType: "TASK",
+        entityId: "task-99",
+        action: "CREATE",
+        payload: '{"title":"其他用户任务"}',
+        clientTs: new Date("2026-04-06T10:03:00.000Z"),
+        serverTs: new Date("2026-04-06T10:12:00.000Z")
+      }
+    ]);
+
+    const firstResponse = await request(app.getHttpServer())
+      .get("/sync/pull")
+      .set("x-user-id", "user-pull")
+      .query({ limit: 2 })
+      .expect(200);
+
+    expect(firstResponse.body.items.map((item: { opId: string }) => item.opId)).toEqual([
+      "pull-op-1",
+      "pull-op-2"
+    ]);
+    expect(firstResponse.body.hasMore).toBe(true);
+    expect(firstResponse.body.nextCursor).toEqual(expect.any(String));
+
+    const secondResponse = await request(app.getHttpServer())
+      .get("/sync/pull")
+      .set("x-user-id", "user-pull")
+      .query({
+        limit: 2,
+        cursor: firstResponse.body.nextCursor
+      })
+      .expect(200);
+
+    expect(secondResponse.body.items.map((item: { opId: string }) => item.opId)).toEqual([
+      "pull-op-3"
+    ]);
+    expect(secondResponse.body.hasMore).toBe(false);
+    expect(secondResponse.body.nextCursor).toEqual(expect.any(String));
+  });
+
+  it("should reject invalid cursor payload", async () => {
+    await request(app.getHttpServer())
+      .get("/sync/pull")
+      .set("x-user-id", "user-invalid-cursor")
+      .query({
+        cursor: "not-a-valid-cursor"
+      })
+      .expect(400);
   });
 });

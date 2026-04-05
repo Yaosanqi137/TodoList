@@ -1,10 +1,19 @@
-import { Body, Controller, Headers, Post, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from "@nestjs/common";
+import { SyncPullQueryDto } from "./dto/sync-pull.dto";
 import { SyncPushDto } from "./dto/sync-push.dto";
-import { SyncPushResponse, SyncService } from "./sync.service";
+import { SyncPullResponse, SyncPushResponse, SyncService } from "./sync.service";
 
 @Controller("sync")
 export class SyncController {
   constructor(private readonly syncService: SyncService) {}
+
+  @Get("pull")
+  async pullOperations(
+    @Headers("x-user-id") userIdHeader: string | string[] | undefined,
+    @Query() query: SyncPullQueryDto
+  ): Promise<SyncPullResponse> {
+    return this.syncService.pullOperations(this.resolveUserId(userIdHeader), query);
+  }
 
   @Post("push")
   async pushOperations(
