@@ -4,6 +4,7 @@ import { JwtService } from "@nestjs/jwt";
 import { randomUUID } from "node:crypto";
 import { authenticator } from "@otplib/preset-default";
 import { AuthMailService } from "./auth-mail.service";
+import { PrismaService } from "../prisma/prisma.service";
 
 type EmailCodeEntry = {
   code: string;
@@ -13,17 +14,6 @@ type EmailCodeEntry = {
 type AuthUser = {
   id: string;
   email: string;
-};
-
-type RefreshTokenEntry = {
-  userId: string;
-  expiresAt: number;
-  revokedAt?: number;
-};
-
-type TwoFactorEntry = {
-  secret: string;
-  enabled: boolean;
 };
 
 type AuthTokenResult = {
@@ -38,15 +28,12 @@ type AuthTokenResult = {
 @Injectable()
 export class AuthService {
   private readonly emailCodeStore = new Map<string, EmailCodeEntry>();
-  private readonly userStoreByEmail = new Map<string, AuthUser>();
-  private readonly userStoreById = new Map<string, AuthUser>();
-  private readonly refreshTokenStore = new Map<string, RefreshTokenEntry>();
-  private readonly twoFactorStore = new Map<string, TwoFactorEntry>();
 
   constructor(
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly authMailService: AuthMailService
+    private readonly authMailService: AuthMailService,
+    private readonly prismaService: PrismaService
   ) {}
 
   async sendEmailCode(email: string): Promise<{ success: boolean; expiresInSeconds: number }> {
@@ -83,53 +70,92 @@ export class AuthService {
 
     this.emailCodeStore.delete(lowerEmail);
 
-    const user = this.getOrCreateUser(lowerEmail);
+    const user = await this.getOrCreateUser(lowerEmail);
     return this.issueTokens(user);
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthTokenResult> {
-    const entry = this.refreshTokenStore.get(refreshToken);
+    const entry = await this.prismaService.refreshToken.findUnique({
+      where: {
+        tokenHash: refreshToken
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true
+          }
+        }
+      }
+    });
+
     if (!entry) {
       throw new UnauthorizedException("刷新令牌不存在");
     }
+
     if (entry.revokedAt) {
       throw new UnauthorizedException("刷新令牌已注销");
     }
-    if (entry.expiresAt < Date.now()) {
-      this.refreshTokenStore.delete(refreshToken);
+
+    if (entry.expiresAt.getTime() < Date.now()) {
+      await this.prismaService.refreshToken.update({
+        where: {
+          id: entry.id
+        },
+        data: {
+          revokedAt: new Date()
+        }
+      });
       throw new UnauthorizedException("刷新令牌已过期");
     }
 
-    const user = this.userStoreById.get(entry.userId);
-    if (!user) {
-      throw new UnauthorizedException("用户不存在");
-    }
+    await this.prismaService.refreshToken.update({
+      where: {
+        id: entry.id
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
 
-    entry.revokedAt = Date.now();
-    return this.issueTokens(user);
+    return this.issueTokens(entry.user);
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<{ success: boolean }> {
-    const entry = this.refreshTokenStore.get(refreshToken);
-    if (!entry) {
-      return { success: true };
-    }
+    await this.prismaService.refreshToken.updateMany({
+      where: {
+        tokenHash: refreshToken,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
 
-    entry.revokedAt = Date.now();
     return { success: true };
   }
 
   async enrollTwoFactor(
     email: string
   ): Promise<{ userId: string; secret: string; otpauthUrl: string; enabled: boolean }> {
-    const user = this.getOrCreateUser(email.toLowerCase());
+    const user = await this.getOrCreateUser(email.toLowerCase());
     const secret = authenticator.generateSecret();
     const issuer = this.configService.get<string>("AUTH_TOTP_ISSUER") ?? "TodoList";
     const otpauthUrl = authenticator.keyuri(user.email, issuer, secret);
 
-    this.twoFactorStore.set(user.id, {
-      secret,
-      enabled: false
+    await this.prismaService.userSecurity.upsert({
+      where: {
+        userId: user.id
+      },
+      update: {
+        twoFactorSecret: secret,
+        twoFactorEnabled: false
+      },
+      create: {
+        userId: user.id,
+        twoFactorSecret: secret,
+        twoFactorEnabled: false
+      }
     });
 
     return {
@@ -144,38 +170,54 @@ export class AuthService {
     email: string,
     token: string
   ): Promise<{ success: boolean; enabled: boolean }> {
-    const user = this.getOrCreateUser(email.toLowerCase());
-    const entry = this.twoFactorStore.get(user.id);
-    if (!entry) {
+    const user = await this.getOrCreateUser(email.toLowerCase());
+    const security = await this.prismaService.userSecurity.findUnique({
+      where: {
+        userId: user.id
+      },
+      select: {
+        twoFactorSecret: true
+      }
+    });
+
+    if (!security?.twoFactorSecret) {
       throw new UnauthorizedException("尚未启用两步验证");
     }
 
-    const valid = authenticator.check(token, entry.secret);
+    const valid = authenticator.check(token, security.twoFactorSecret);
     if (!valid) {
       throw new UnauthorizedException("两步验证码错误");
     }
 
-    entry.enabled = true;
+    await this.prismaService.userSecurity.update({
+      where: {
+        userId: user.id
+      },
+      data: {
+        twoFactorEnabled: true
+      }
+    });
+
     return {
       success: true,
       enabled: true
     };
   }
 
-  private getOrCreateUser(email: string): AuthUser {
-    const existingUser = this.userStoreByEmail.get(email);
-    if (existingUser) {
-      return existingUser;
-    }
-
-    const newUser = {
-      id: randomUUID(),
-      email
-    };
-    this.userStoreByEmail.set(email, newUser);
-    this.userStoreById.set(newUser.id, newUser);
-
-    return newUser;
+  private async getOrCreateUser(email: string): Promise<AuthUser> {
+    return this.prismaService.user.upsert({
+      where: {
+        email
+      },
+      update: {},
+      create: {
+        email
+      },
+      select: {
+        id: true,
+        email: true
+      }
+    });
   }
 
   private generateCode(): string {
@@ -195,9 +237,12 @@ export class AuthService {
     });
     const refreshToken = `${randomUUID()}${randomUUID()}`;
 
-    this.refreshTokenStore.set(refreshToken, {
-      userId: user.id,
-      expiresAt: Date.now() + refreshExpiresInSeconds * 1000
+    await this.prismaService.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: refreshToken,
+        expiresAt: new Date(Date.now() + refreshExpiresInSeconds * 1000)
+      }
     });
 
     return {
