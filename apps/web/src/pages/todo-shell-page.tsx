@@ -382,8 +382,8 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
               />
             </label>
 
-            <label className="block text-sm text-muted-foreground">
-              任务内容
+            <div className="block text-sm text-muted-foreground">
+              <p>任务内容</p>
               <div className="mt-1">
                 <TaskRichEditor
                   valueJson={formState.contentJson}
@@ -397,7 +397,7 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
                   }
                 />
               </div>
-            </label>
+            </div>
           </div>
         )}
 
