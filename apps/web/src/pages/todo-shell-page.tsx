@@ -66,6 +66,20 @@ const STATUS_OPTIONS: Array<{ value: LocalTaskStatus; label: string }> = [
   { value: "ARCHIVED", label: "已归档" }
 ];
 
+const PRIORITY_LABEL_MAP: Record<LocalTaskPriority, string> = {
+  LOW: "低",
+  MEDIUM: "中",
+  HIGH: "高",
+  URGENT: "紧急"
+};
+
+const STATUS_LABEL_MAP: Record<LocalTaskStatus, string> = {
+  TODO: "待办",
+  IN_PROGRESS: "进行中",
+  DONE: "已完成",
+  ARCHIVED: "已归档"
+};
+
 function toDatetimeLocalValue(timestamp: number | null): string {
   if (timestamp === null) {
     return "";
@@ -457,7 +471,8 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
                   >
                     <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {task.status} · {task.priority} · 更新于 {formatUpdatedAt(task.updatedAt)}
+                      {STATUS_LABEL_MAP[task.status]} · {PRIORITY_LABEL_MAP[task.priority]} · 更新于{" "}
+                      {formatUpdatedAt(task.updatedAt)}
                     </p>
                   </button>
                 );
