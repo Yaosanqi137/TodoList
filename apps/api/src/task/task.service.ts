@@ -75,7 +75,7 @@ export class TaskService {
     ]);
 
     return {
-      items: items.map((item) => this.serializeTask(item)),
+      items: items.map((item: TaskEntity) => this.serializeTask(item)),
       page,
       pageSize,
       total
@@ -363,7 +363,7 @@ export class TaskService {
     );
 
     await tx.taskTag.createMany({
-      data: tags.map((tag) => ({
+      data: tags.map((tag: { id: string }) => ({
         taskId,
         tagId: tag.id
       })),
@@ -382,7 +382,7 @@ export class TaskService {
       ddl: task.ddl?.toISOString() ?? null,
       completedAt: task.completedAt?.toISOString() ?? null,
       version: task.version,
-      tags: task.taskTags.map((taskTag) => taskTag.tag.name),
+      tags: task.taskTags.map((taskTag: { tag: { name: string } }) => taskTag.tag.name),
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString()
     };
