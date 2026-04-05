@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { AttachmentModule } from "./attachment/attachment.module";
 import { AuthModule } from "./auth/auth.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { SyncModule } from "./sync/sync.module";
 import { TaskModule } from "./task/task.module";
 
 @Module({
@@ -14,7 +15,8 @@ import { TaskModule } from "./task/task.module";
     PrismaModule,
     AuthModule,
     TaskModule,
-    AttachmentModule
+    AttachmentModule,
+    SyncModule
   ]
 })
 export class AppModule {}
