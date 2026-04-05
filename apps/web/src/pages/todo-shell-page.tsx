@@ -1,9 +1,19 @@
-﻿import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { TaskRichEditor } from "@/components/task-rich-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { LocalTaskPriority, LocalTaskStatus } from "@/services/local-db";
+import type {
+  LocalTaskDraftRecord,
+  LocalTaskPriority,
+  LocalTaskRecord,
+  LocalTaskStatus
+} from "@/services/local-db";
+import {
+  deleteLocalTaskDraft,
+  getLocalTaskDraft,
+  saveLocalTaskDraft
+} from "@/services/local-task-draft-repo";
 import {
   createLocalTask,
   deleteLocalTask,
@@ -82,6 +92,32 @@ function formatUpdatedAt(timestamp: number): string {
   });
 }
 
+function createFormStateFromTask(task: LocalTaskRecord): TaskFormState {
+  return {
+    title: task.title,
+    contentJson: task.contentJson,
+    contentText: task.contentText ?? "",
+    priority: task.priority,
+    status: task.status,
+    ddlInput: toDatetimeLocalValue(task.ddlAt)
+  };
+}
+
+function createFormStateFromDraft(draft: LocalTaskDraftRecord): TaskFormState {
+  return {
+    title: draft.title,
+    contentJson: draft.contentJson,
+    contentText: draft.contentText,
+    priority: draft.priority,
+    status: draft.status,
+    ddlInput: draft.ddlInput
+  };
+}
+
+function serializeFormState(formState: TaskFormState): string {
+  return JSON.stringify(formState);
+}
+
 export function TodoShellPage({ session }: TodoShellPageProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [formState, setFormState] = useState<TaskFormState>(DEFAULT_FORM_STATE);
@@ -89,6 +125,8 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [draftReadyTaskId, setDraftReadyTaskId] = useState<string | null>(null);
+  const savedTaskSnapshotRef = useRef(serializeFormState(DEFAULT_FORM_STATE));
 
   const userId = session?.user.id ?? "";
 
@@ -134,30 +172,71 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
   }, [selectedTaskId, tasks]);
 
   useEffect(() => {
-    if (!selectedTask) {
+    if (!selectedTaskId) {
       setFormState(DEFAULT_FORM_STATE);
+      setDraftReadyTaskId(null);
+      savedTaskSnapshotRef.current = serializeFormState(DEFAULT_FORM_STATE);
       return;
     }
 
-    setFormState({
-      title: selectedTask.title,
-      contentJson: selectedTask.contentJson,
-      contentText: selectedTask.contentText ?? "",
-      priority: selectedTask.priority,
-      status: selectedTask.status,
-      ddlInput: toDatetimeLocalValue(selectedTask.ddlAt)
-    });
-  }, [selectedTask]);
+    if (!selectedTask) {
+      return;
+    }
 
-  if (!session) {
-    return (
-      <div className="rounded-2xl border border-border bg-card/90 p-6 text-sm text-muted-foreground">
-        当前未建立登录会话，请先完成登录。
-      </div>
-    );
-  }
+    let cancelled = false;
+    const currentTask = selectedTask;
 
-  async function handleCreateTask(): Promise<void> {
+    async function hydrateFormState(): Promise<void> {
+      const persistedTaskState = createFormStateFromTask(currentTask);
+      const localDraft = await getLocalTaskDraft(currentTask.id);
+
+      if (cancelled) {
+        return;
+      }
+
+      savedTaskSnapshotRef.current = serializeFormState(persistedTaskState);
+      setFormState(localDraft ? createFormStateFromDraft(localDraft) : persistedTaskState);
+      setDraftReadyTaskId(currentTask.id);
+    }
+
+    void hydrateFormState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTask, selectedTaskId]);
+
+  useEffect(() => {
+    if (!selectedTaskId || !selectedTask || draftReadyTaskId !== selectedTaskId || !userId) {
+      return;
+    }
+
+    const currentSnapshot = serializeFormState(formState);
+    const currentTaskId = selectedTaskId;
+    const currentUserId = userId;
+
+    async function persistDraft(): Promise<void> {
+      if (currentSnapshot === savedTaskSnapshotRef.current) {
+        await deleteLocalTaskDraft(currentTaskId);
+        return;
+      }
+
+      await saveLocalTaskDraft({
+        taskId: currentTaskId,
+        userId: currentUserId,
+        title: formState.title,
+        contentJson: formState.contentJson,
+        contentText: formState.contentText,
+        priority: formState.priority,
+        status: formState.status,
+        ddlInput: formState.ddlInput
+      });
+    }
+
+    void persistDraft();
+  }, [draftReadyTaskId, formState, selectedTask, selectedTaskId, userId]);
+
+  const handleCreateTask = useCallback(async (): Promise<void> => {
     if (creating || !userId) {
       return;
     }
@@ -170,9 +249,9 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
     } finally {
       setCreating(false);
     }
-  }
+  }, [creating, userId]);
 
-  async function handleSaveTask(): Promise<void> {
+  const handleSaveTask = useCallback(async (): Promise<void> => {
     if (!selectedTaskId || saving) {
       return;
     }
@@ -194,13 +273,15 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
         return;
       }
 
+      savedTaskSnapshotRef.current = serializeFormState(createFormStateFromTask(updatedTask));
+      await deleteLocalTaskDraft(selectedTaskId);
       setFeedback("任务已保存。");
     } finally {
       setSaving(false);
     }
-  }
+  }, [formState, saving, selectedTaskId]);
 
-  async function handleDeleteTask(): Promise<void> {
+  const handleDeleteTask = useCallback(async (): Promise<void> => {
     if (!selectedTaskId || deleting) {
       return;
     }
@@ -213,10 +294,42 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
         return;
       }
 
+      await deleteLocalTaskDraft(selectedTaskId);
       setFeedback("任务已删除。");
     } finally {
       setDeleting(false);
     }
+  }, [deleting, selectedTaskId]);
+
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent): void {
+      const isSaveShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s";
+
+      if (!isSaveShortcut) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (!selectedTaskId || saving) {
+        return;
+      }
+
+      void handleSaveTask();
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => {
+      window.removeEventListener("keydown", handleKeydown);
+    };
+  }, [handleSaveTask, saving, selectedTaskId]);
+
+  if (!session) {
+    return (
+      <div className="rounded-2xl border border-border bg-card/90 p-6 text-sm text-muted-foreground">
+        当前未建立登录会话，请先完成登录。
+      </div>
+    );
   }
 
   const taskList = tasks ?? [];

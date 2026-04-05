@@ -35,9 +35,22 @@ export type LocalOpLogRecord = {
   errorMessage: string | null;
 };
 
+export type LocalTaskDraftRecord = {
+  taskId: string;
+  userId: string;
+  title: string;
+  contentJson: string | null;
+  contentText: string;
+  priority: LocalTaskPriority;
+  status: LocalTaskStatus;
+  ddlInput: string;
+  updatedAt: number;
+};
+
 class TodoLocalDb extends Dexie {
   declare tasks: Table<LocalTaskRecord, string>;
   declare opLogs: Table<LocalOpLogRecord, string>;
+  declare taskDrafts: Table<LocalTaskDraftRecord, string>;
 
   constructor() {
     super("todolist-web-db");
@@ -47,8 +60,15 @@ class TodoLocalDb extends Dexie {
       op_logs: "&opId,entityId,entityType,action,clientTs,syncedAt"
     });
 
+    this.version(2).stores({
+      tasks: "&id,userId,status,priority,ddlAt,updatedAt,deletedAt",
+      op_logs: "&opId,entityId,entityType,action,clientTs,syncedAt",
+      task_drafts: "&taskId,userId,updatedAt"
+    });
+
     this.tasks = this.table("tasks");
     this.opLogs = this.table("op_logs");
+    this.taskDrafts = this.table("task_drafts");
   }
 }
 
