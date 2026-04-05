@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_VIDEO_UPLOAD_BYTES = 10 * 1024 * 1024;
+const EDITOR_CHANGE_DEBOUNCE_MS = 120;
 
 type TaskRichEditorProps = {
   valueJson: string | null;
@@ -159,6 +160,47 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
   const [mediaHint, setMediaHint] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const changeTimeoutRef = useRef<number | null>(null);
+  const latestOnChangeRef = useRef(onChange);
+  const lastSyncedPayloadRef = useRef<{
+    json: string | null;
+    text: string;
+  }>({
+    json: valueJson,
+    text: textFallback
+  });
+
+  useEffect(() => {
+    latestOnChangeRef.current = onChange;
+  }, [onChange]);
+
+  function flushEditorChange(currentEditor: TiptapEditor): void {
+    const nextPayload = {
+      json: JSON.stringify(currentEditor.getJSON()),
+      text: currentEditor.getText()
+    };
+
+    if (
+      nextPayload.json === lastSyncedPayloadRef.current.json &&
+      nextPayload.text === lastSyncedPayloadRef.current.text
+    ) {
+      return;
+    }
+
+    lastSyncedPayloadRef.current = nextPayload;
+    latestOnChangeRef.current(nextPayload);
+  }
+
+  function scheduleEditorChange(currentEditor: TiptapEditor): void {
+    if (changeTimeoutRef.current !== null) {
+      window.clearTimeout(changeTimeoutRef.current);
+    }
+
+    changeTimeoutRef.current = window.setTimeout(() => {
+      flushEditorChange(currentEditor);
+      changeTimeoutRef.current = null;
+    }, EDITOR_CHANGE_DEBOUNCE_MS);
+  }
 
   const editor = useEditor({
     extensions: [
@@ -186,15 +228,33 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
       }
     },
     onUpdate({ editor: currentEditor }) {
-      const nextJson = JSON.stringify(currentEditor.getJSON());
-      const nextText = currentEditor.getText();
-      onChange({ json: nextJson, text: nextText });
+      scheduleEditorChange(currentEditor);
+    },
+    onBlur({ editor: currentEditor }) {
+      if (changeTimeoutRef.current !== null) {
+        window.clearTimeout(changeTimeoutRef.current);
+        changeTimeoutRef.current = null;
+      }
+
+      flushEditorChange(currentEditor);
     }
   });
 
   useEffect(() => {
     if (!editor) {
       return;
+    }
+
+    if (
+      valueJson === lastSyncedPayloadRef.current.json &&
+      textFallback === lastSyncedPayloadRef.current.text
+    ) {
+      return;
+    }
+
+    if (changeTimeoutRef.current !== null) {
+      window.clearTimeout(changeTimeoutRef.current);
+      changeTimeoutRef.current = null;
     }
 
     if (valueJson) {
@@ -207,20 +267,31 @@ export function TaskRichEditor({ valueJson, textFallback, onChange }: TaskRichEd
         return;
       }
 
-      if (JSON.stringify(editor.getJSON()) === JSON.stringify(nextJson)) {
-        return;
-      }
-
       editor.commands.setContent(nextJson, { emitUpdate: false });
+      lastSyncedPayloadRef.current = {
+        json: valueJson,
+        text: textFallback
+      };
       return;
     }
 
-    if (editor.getText() === textFallback) {
-      return;
+    if (editor.getText() !== textFallback) {
+      editor.commands.setContent(textFallback, { emitUpdate: false });
     }
 
-    editor.commands.setContent(textFallback, { emitUpdate: false });
+    lastSyncedPayloadRef.current = {
+      json: valueJson,
+      text: textFallback
+    };
   }, [editor, textFallback, valueJson]);
+
+  useEffect(() => {
+    return () => {
+      if (changeTimeoutRef.current !== null) {
+        window.clearTimeout(changeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   async function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];

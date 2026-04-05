@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   CheckCircle2,
@@ -50,6 +50,8 @@ type FeedbackNotice = {
   message: string;
   tone: "success" | "error";
 };
+
+const DRAFT_PERSIST_DEBOUNCE_MS = 500;
 
 const DEFAULT_FORM_STATE: TaskFormState = {
   title: "",
@@ -362,7 +364,13 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
       });
     }
 
-    void persistDraft();
+    const timeoutId = window.setTimeout(() => {
+      void persistDraft();
+    }, DRAFT_PERSIST_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [draftReadyTaskId, formState, selectedTask, selectedTaskId, userId]);
 
   const showFeedback = useCallback((message: string, tone: FeedbackNotice["tone"]): void => {
@@ -489,6 +497,16 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
       setDeleting(false);
     }
   }, [deleting, selectedTaskId, showFeedback]);
+
+  const handleEditorChange = useCallback((payload: { json: string | null; text: string }): void => {
+    startTransition(() => {
+      setFormState((previous) => ({
+        ...previous,
+        contentJson: payload.json,
+        contentText: payload.text
+      }));
+    });
+  }, []);
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent): void {
@@ -746,13 +764,7 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
                     <TaskRichEditor
                       valueJson={formState.contentJson}
                       textFallback={formState.contentText}
-                      onChange={(payload) =>
-                        setFormState((previous) => ({
-                          ...previous,
-                          contentJson: payload.json,
-                          contentText: payload.text
-                        }))
-                      }
+                      onChange={handleEditorChange}
                     />
                   </div>
                 </div>
