@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import { AuthController } from "./auth.controller";
+import { AuthMailService } from "./auth-mail.service";
 import { AuthService } from "./auth.service";
 import { GithubStrategy } from "./strategies/github.strategy";
 import { QqStrategy } from "./strategies/qq.strategy";
@@ -27,6 +28,6 @@ import { WechatStrategy } from "./strategies/wechat.strategy";
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService, GithubStrategy, QqStrategy, WechatStrategy]
+  providers: [AuthService, AuthMailService, GithubStrategy, QqStrategy, WechatStrategy]
 })
 export class AuthModule {}

@@ -14,7 +14,7 @@ export class AuthController {
   @Post("email/send-code")
   async sendEmailCode(
     @Body() body: SendEmailCodeDto
-  ): Promise<{ success: boolean; expiresInSeconds: number; debugCode: string }> {
+  ): Promise<{ success: boolean; expiresInSeconds: number }> {
     return this.authService.sendEmailCode(body.email);
   }
 
