@@ -49,13 +49,16 @@ export function OAuthCallbackPage({ onBootstrapSession }: OAuthCallbackPageProps
   }
 
   return (
-    <div className="mx-auto w-full max-w-md rounded-xl border border-[#d7e2db] bg-white p-6 shadow-sm">
-      <h1 className="text-2xl font-semibold text-[#122117]">OAuth 回调处理中</h1>
-      <p className="mt-2 text-sm text-[#3a5a4a]">
+    <div className="mx-auto w-full max-w-md rounded-2xl border border-border bg-card/92 p-6 shadow-[0_24px_60px_-36px_hsl(var(--primary)/0.55)] backdrop-blur">
+      <div className="mb-4 flex items-center gap-3">
+        <img src="/favicon.png" alt="TodoList" className="h-10 w-10 rounded-xl shadow-sm" />
+        <h1 className="text-2xl font-semibold text-foreground">OAuth 回调处理中</h1>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">
         {parseResult.ok ? "已收到回调参数，点击继续进入工作台。" : parseResult.reason}
       </p>
       <Button
-        className="mt-6 w-full bg-[#0a7a5a] text-white hover:bg-[#0a7a5a]/90"
+        className="mt-6 w-full bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-95"
         onClick={handleContinue}
       >
         {parseResult.ok ? "继续" : "返回邮箱登录"}

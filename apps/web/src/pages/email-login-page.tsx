@@ -84,31 +84,39 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md rounded-xl border border-[#d7e2db] bg-white p-6 shadow-sm">
-      <h1 className="text-2xl font-semibold text-[#122117]">邮箱验证码登录</h1>
-      <p className="mt-2 text-sm text-[#3a5a4a]">
-        输入邮箱后获取验证码，再完成登录。你也可以直接使用第三方账号登录。
-      </p>
+    <div className="mx-auto w-full max-w-md rounded-2xl border border-border bg-card/92 p-6 shadow-[0_24px_60px_-36px_hsl(var(--primary)/0.65)] backdrop-blur">
+      <div className="mb-4 flex items-center gap-3">
+        <img src="/favicon.png" alt="TodoList" className="h-10 w-10 rounded-xl shadow-sm" />
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">邮箱验证码登录</h1>
+        </div>
+      </div>
 
       <form className="mt-6 space-y-3" onSubmit={handleSendCode}>
-        <label className="block text-sm font-medium text-[#244236]" htmlFor="email">
+        <label className="block text-sm font-medium text-secondary-foreground" htmlFor="email">
           邮箱
         </label>
-        <input
-          id="email"
-          type="email"
-          className="w-full rounded-md border border-[#bfd0c7] px-3 py-2 text-sm outline-none focus:border-[#0a7a5a]"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-        <Button type="submit" disabled={!canSendCode} className="w-full">
-          {sendingCode ? "发送中..." : codeCooldown > 0 ? `${codeCooldown} 秒后重发` : "发送验证码"}
-        </Button>
+        <div className="flex items-stretch gap-2">
+          <input
+            id="email"
+            type="email"
+            className="min-w-0 flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-3 focus:ring-ring/25"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <Button
+            type="submit"
+            disabled={!canSendCode}
+            className="shrink-0 bg-primary px-4 text-primary-foreground hover:bg-primary/90"
+          >
+            {sendingCode ? "发送中..." : codeCooldown > 0 ? `${codeCooldown}s` : "发送验证码"}
+          </Button>
+        </div>
       </form>
 
       <form className="mt-4 space-y-3" onSubmit={handleLogin}>
-        <label className="block text-sm font-medium text-[#244236]" htmlFor="code">
+        <label className="block text-sm font-medium text-secondary-foreground" htmlFor="code">
           验证码
         </label>
         <input
@@ -116,7 +124,7 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
           type="text"
           inputMode="numeric"
           maxLength={6}
-          className="w-full rounded-md border border-[#bfd0c7] px-3 py-2 text-sm outline-none focus:border-[#0a7a5a]"
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-3 focus:ring-ring/25"
           placeholder="6位数字验证码"
           value={code}
           onChange={(event) => setCode(event.target.value)}
@@ -124,7 +132,7 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
         <Button
           type="submit"
           disabled={!canLogin}
-          className="w-full bg-[#0a7a5a] text-white hover:bg-[#0a7a5a]/90"
+          className="w-full bg-gradient-to-r from-primary to-accent text-primary-foreground hover:opacity-95"
         >
           {loggingIn ? "登录中..." : "立即登录"}
         </Button>
@@ -132,24 +140,36 @@ export function EmailLoginPage({ onLoginSuccess }: EmailLoginPageProps) {
 
       <div className="mt-6 grid grid-cols-1 gap-2">
         <a href={`${resolveApiBaseUrl()}/auth/oauth/github`}>
-          <Button type="button" variant="outline" className="w-full">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-border bg-card text-foreground"
+          >
             使用 GitHub 登录
           </Button>
         </a>
         <a href={`${resolveApiBaseUrl()}/auth/oauth/qq`}>
-          <Button type="button" variant="outline" className="w-full">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-border bg-card text-foreground"
+          >
             使用 QQ 登录
           </Button>
         </a>
         <a href={`${resolveApiBaseUrl()}/auth/oauth/wechat`}>
-          <Button type="button" variant="outline" className="w-full">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-border bg-card text-foreground"
+          >
             使用微信登录
           </Button>
         </a>
       </div>
 
-      {message ? <p className="mt-4 text-sm text-[#0a7a5a]">{message}</p> : null}
-      {error ? <p className="mt-2 text-sm text-[#b42318]">{error}</p> : null}
+      {message ? <p className="mt-4 text-sm text-primary">{message}</p> : null}
+      {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
