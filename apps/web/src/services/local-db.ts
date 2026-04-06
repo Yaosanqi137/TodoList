@@ -69,12 +69,22 @@ export type LocalSyncInboxRecord = {
   appliedAt: number | null;
 };
 
+export type LocalAiChatSessionRecord = {
+  key: string;
+  userId: string;
+  channel: "USER_KEY" | "ASTRBOT" | "PUBLIC_POOL";
+  sessionId: string | null;
+  messagesJson: string;
+  updatedAt: number;
+};
+
 class TodoLocalDb extends Dexie {
   declare tasks: Table<LocalTaskRecord, string>;
   declare opLogs: Table<LocalOpLogRecord, string>;
   declare taskDrafts: Table<LocalTaskDraftRecord, string>;
   declare syncStates: Table<LocalSyncStateRecord, string>;
   declare syncInbox: Table<LocalSyncInboxRecord, string>;
+  declare aiChatSessions: Table<LocalAiChatSessionRecord, string>;
 
   constructor() {
     super("todolist-web-db");
@@ -117,11 +127,21 @@ class TodoLocalDb extends Dexie {
           });
       });
 
+    this.version(5).stores({
+      tasks: "&id,userId,status,priority,ddlAt,updatedAt,deletedAt",
+      op_logs: "&opId,entityId,entityType,action,clientTs,syncedAt",
+      task_drafts: "&taskId,userId,updatedAt",
+      sync_states: "&userId,updatedAt,lastSyncedAt",
+      sync_inbox: "&opId,userId,entityId,serverTs,appliedAt",
+      ai_chat_sessions: "&key,userId,channel,updatedAt"
+    });
+
     this.tasks = this.table("tasks");
     this.opLogs = this.table("op_logs");
     this.taskDrafts = this.table("task_drafts");
     this.syncStates = this.table("sync_states");
     this.syncInbox = this.table("sync_inbox");
+    this.aiChatSessions = this.table("ai_chat_sessions");
   }
 }
 

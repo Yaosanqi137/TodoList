@@ -19,6 +19,12 @@ import {
   type WebAiChannel,
   WebAiApiError
 } from "@/services/ai-api";
+import {
+  deleteLocalAiChatSession,
+  listLocalAiChatSessions,
+  saveLocalAiChatSession,
+  type LocalAiChatMessageRecord
+} from "@/services/local-ai-chat-repo";
 import type { WebSession } from "@/services/session-storage";
 import { CHANNEL_META, CHANNEL_ORDER } from "@/components/ai/ai-shared";
 
@@ -26,12 +32,7 @@ type AiChatPageProps = {
   session: WebSession;
 };
 
-type AiMessageRecord = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  meta?: string;
-};
+type AiMessageRecord = LocalAiChatMessageRecord;
 
 function createEmptyMessages(): Record<WebAiChannel, AiMessageRecord[]> {
   return {
@@ -78,6 +79,7 @@ export function AiChatPage({ session }: AiChatPageProps) {
   const [draftMessage, setDraftMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const bindingMap = useMemo(() => {
@@ -111,6 +113,68 @@ export function AiChatPage({ session }: AiChatPageProps) {
   useEffect(() => {
     void loadBindings();
   }, [loadBindings]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLocalHistory(): Promise<void> {
+      try {
+        const records = await listLocalAiChatSessions(session.user.id);
+        if (cancelled) {
+          return;
+        }
+
+        const nextMessages = createEmptyMessages();
+        const nextSessionIds = createEmptySessionIds();
+
+        for (const record of records) {
+          nextMessages[record.channel] = record.messages;
+          if (record.sessionId) {
+            nextSessionIds[record.channel] = record.sessionId;
+          }
+        }
+
+        setMessagesByChannel(nextMessages);
+        setSessionIds(nextSessionIds);
+      } finally {
+        if (!cancelled) {
+          setHistoryLoaded(true);
+        }
+      }
+    }
+
+    setHistoryLoaded(false);
+    void loadLocalHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.user.id]);
+
+  useEffect(() => {
+    if (!historyLoaded) {
+      return;
+    }
+
+    void Promise.all(
+      CHANNEL_ORDER.map(async (channel) => {
+        const messages = messagesByChannel[channel];
+        const sessionId = sessionIds[channel] ?? null;
+
+        if (messages.length === 0 && sessionId === null) {
+          await deleteLocalAiChatSession(session.user.id, channel);
+          return;
+        }
+
+        await saveLocalAiChatSession({
+          userId: session.user.id,
+          channel,
+          sessionId,
+          messages
+        });
+      })
+    );
+  }, [historyLoaded, messagesByChannel, session.user.id, sessionIds]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
