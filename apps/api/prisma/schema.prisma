@@ -63,7 +63,8 @@ enum NotificationStatus {
 
 model User {
   id                    String              @id @default(cuid())
-  email                 String              @unique
+  email                 String
+  emailHash             String?             @unique
   nickname              String?
   avatarUrl             String?
   status                UserStatus          @default(ACTIVE)
@@ -97,11 +98,13 @@ model AuthIdentity {
   provider       AuthProvider
   providerUserId String
   email          String?
+  emailHash      String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerUserId])
+  @@index([emailHash])
   @@index([userId])
   @@map("auth_identities")
 }

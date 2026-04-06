@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { authenticator } from "@otplib/preset-default";
 import { AuthMailService } from "./auth-mail.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { DataEncryptionService } from "../security/data-encryption.service";
 
 type EmailCodeEntry = {
   code: string;
@@ -33,7 +34,8 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly authMailService: AuthMailService,
-    private readonly prismaService: PrismaService
+    private readonly prismaService: PrismaService,
+    private readonly dataEncryptionService: DataEncryptionService
   ) {}
 
   async sendEmailCode(email: string): Promise<{ success: boolean; expiresInSeconds: number }> {
@@ -118,7 +120,10 @@ export class AuthService {
       }
     });
 
-    return this.issueTokens(entry.user);
+    return this.issueTokens({
+      id: entry.user.id,
+      email: this.readRequiredEmail(entry.user.email)
+    });
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<{ success: boolean }> {
@@ -205,19 +210,27 @@ export class AuthService {
   }
 
   private async getOrCreateUser(email: string): Promise<AuthUser> {
-    return this.prismaService.user.upsert({
+    const normalizedEmail = email.toLowerCase();
+    const emailHash = this.dataEncryptionService.createLookupHash("user.email", normalizedEmail);
+    const user = await this.prismaService.user.upsert({
       where: {
-        email
+        emailHash
       },
       update: {},
       create: {
-        email
+        email: this.encryptRequiredString(normalizedEmail),
+        emailHash
       },
       select: {
         id: true,
         email: true
       }
     });
+
+    return {
+      id: user.id,
+      email: this.readRequiredEmail(user.email)
+    };
   }
 
   private generateCode(): string {
@@ -253,5 +266,23 @@ export class AuthService {
       refreshExpiresInSeconds,
       user
     };
+  }
+
+  private encryptRequiredString(value: string): string {
+    const encryptedValue = this.dataEncryptionService.encryptString(value);
+    if (!encryptedValue) {
+      throw new UnauthorizedException("用户敏感字段加密失败");
+    }
+
+    return encryptedValue;
+  }
+
+  private readRequiredEmail(value: string): string {
+    const decryptedValue = this.dataEncryptionService.decryptString(value);
+    if (typeof decryptedValue !== "string" || decryptedValue.length === 0) {
+      throw new UnauthorizedException("用户邮箱解密失败");
+    }
+
+    return decryptedValue;
   }
 }

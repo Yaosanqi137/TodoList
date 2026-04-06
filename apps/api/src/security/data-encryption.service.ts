@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Prisma } from "../../generated/prisma/client";
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 
 const ENCRYPTION_PREFIX = "encv1";
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
@@ -120,6 +120,22 @@ export class DataEncryptionService {
     }
 
     return JSON.stringify(value);
+  }
+
+  createLookupHash(scope: string, value: string): string {
+    const normalizedScope = scope.trim().toLowerCase();
+    if (!normalizedScope) {
+      throw new InternalServerErrorException("缺少盲索引作用域");
+    }
+
+    const secret = this.configService.get<string>("DATA_ENCRYPTION_SECRET");
+    if (!secret) {
+      throw new InternalServerErrorException("服务端未配置 DATA_ENCRYPTION_SECRET，无法生成盲索引");
+    }
+
+    return createHmac("sha256", `lookup:${normalizedScope}:${secret}`)
+      .update(value, "utf8")
+      .digest("hex");
   }
 
   private isEncryptedPayload(value: string): boolean {

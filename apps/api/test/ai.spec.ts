@@ -612,12 +612,10 @@ describe("AiController (integration)", () => {
       }
     ]);
     expect(prismaService.getUsageLogs()).toEqual([
-      {
+      expect.objectContaining({
         id: expect.any(String),
         userId: "user_1",
         channel: AiChannel.USER_KEY,
-        providerName: "openai",
-        model: "gpt-4o-mini",
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
@@ -625,13 +623,11 @@ describe("AiController (integration)", () => {
         success: false,
         errorCode: "UPSTREAM_UNREACHABLE",
         createdAt: expect.any(Date)
-      },
-      {
+      }),
+      expect.objectContaining({
         id: expect.any(String),
         userId: "user_1",
         channel: AiChannel.ASTRBOT,
-        providerName: "default",
-        model: null,
         promptTokens: 12,
         completionTokens: 8,
         totalTokens: 20,
@@ -639,8 +635,10 @@ describe("AiController (integration)", () => {
         success: true,
         errorCode: null,
         createdAt: expect.any(Date)
-      }
+      })
     ]);
+    expect(prismaService.getUsageLogs()[0]?.providerName).not.toBe("openai");
+    expect(prismaService.getUsageLogs()[0]?.model).not.toBe("gpt-4o-mini");
   });
 
   it("should allow astrbot binding with config id only", async () => {

@@ -9,7 +9,7 @@
     "prebuild": "pnpm run prisma:generate",
     "pretypecheck": "pnpm run prisma:generate",
     "pretest": "pnpm run prisma:generate",
-    "data:reencrypt": "ts-node scripts/reencrypt-sensitive-data.ts",
+    "data:reencrypt": "node -e \"require('node:fs').rmSync('.tmp-compile', { recursive: true, force: true })\" && tsc -p tsconfig.json --outDir .tmp-compile --noEmit false && node .tmp-compile/scripts/reencrypt-sensitive-data.js && node -e \"require('node:fs').rmSync('.tmp-compile', { recursive: true, force: true })\"",
     "start": "node dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "build": "tsc -p tsconfig.build.json",

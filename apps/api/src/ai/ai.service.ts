@@ -464,8 +464,8 @@ export class AiService {
     return {
       id: log.id,
       channel: log.channel,
-      providerName: log.providerName,
-      model: log.model,
+      providerName: this.readDecryptedString(log.providerName),
+      model: this.readDecryptedString(log.model),
       promptTokens: log.promptTokens,
       completionTokens: log.completionTokens,
       totalTokens: log.totalTokens,
@@ -730,8 +730,12 @@ export class AiService {
         data: {
           userId: input.userId,
           channel: input.channel,
-          providerName: input.providerName,
-          model: input.model,
+          providerName:
+            input.providerName === null
+              ? null
+              : this.dataEncryptionService.encryptString(input.providerName),
+          model:
+            input.model === null ? null : this.dataEncryptionService.encryptString(input.model),
           promptTokens: input.usage?.promptTokens ?? 0,
           completionTokens: input.usage?.completionTokens ?? 0,
           totalTokens: input.usage?.totalTokens ?? 0,
