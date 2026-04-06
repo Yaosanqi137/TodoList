@@ -7,6 +7,7 @@
 } from "@nestjs/common";
 import {
   AiChannel,
+  AiUsageLog,
   AiProviderBinding,
   AiPublicPoolConfig,
   Prisma,
@@ -16,6 +17,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { AiProviderRegistryService } from "./ai-provider-registry.service";
 import { AiChatDto } from "./dto/ai-chat.dto";
+import { ListAiUsageLogsQueryDto } from "./dto/list-ai-usage-logs-query.dto";
 import { UpsertAiProviderBindingDto } from "./dto/upsert-ai-provider-binding.dto";
 import {
   AiResolvedRouteCandidate,
@@ -59,6 +61,27 @@ export type ListAiBindingsResponse = {
     endpoint: string | null;
     hasApiKey: boolean;
   } | null;
+};
+
+type AiUsageLogSummary = {
+  id: string;
+  channel: AiChannel;
+  providerName: string | null;
+  model: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  latencyMs: number | null;
+  success: boolean;
+  errorCode: string | null;
+  createdAt: string;
+};
+
+export type ListAiUsageLogsResponse = {
+  items: AiUsageLogSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
 };
 
 export type AiChatResponse = {
@@ -108,6 +131,47 @@ export class AiService {
             hasApiKey: Boolean(publicPool.encryptedApiKey)
           }
         : null
+    };
+  }
+
+  async listUsageLogs(
+    userId: string,
+    query: ListAiUsageLogsQueryDto
+  ): Promise<ListAiUsageLogsResponse> {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const skip = (page - 1) * pageSize;
+    const where: Prisma.AiUsageLogWhereInput = {
+      userId
+    };
+
+    if (query.channel) {
+      where.channel = query.channel;
+    }
+
+    if (query.success !== undefined) {
+      where.success = query.success;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prismaService.aiUsageLog.findMany({
+        where,
+        orderBy: {
+          createdAt: "desc"
+        },
+        skip,
+        take: pageSize
+      }),
+      this.prismaService.aiUsageLog.count({
+        where
+      })
+    ]);
+
+    return {
+      items: items.map((item) => this.serializeUsageLog(item)),
+      page,
+      pageSize,
+      total
     };
   }
 
@@ -418,6 +482,22 @@ export class AiService {
       hasApiKey: Boolean(binding.encryptedApiKey),
       maskedApiKey: this.maskSecret(binding.encryptedApiKey),
       updatedAt: binding.updatedAt.toISOString()
+    };
+  }
+
+  private serializeUsageLog(log: AiUsageLog): AiUsageLogSummary {
+    return {
+      id: log.id,
+      channel: log.channel,
+      providerName: log.providerName,
+      model: log.model,
+      promptTokens: log.promptTokens,
+      completionTokens: log.completionTokens,
+      totalTokens: log.totalTokens,
+      latencyMs: log.latencyMs,
+      success: log.success,
+      errorCode: log.errorCode,
+      createdAt: log.createdAt.toISOString()
     };
   }
 

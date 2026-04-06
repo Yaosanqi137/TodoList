@@ -1,7 +1,13 @@
-﻿import { Body, Controller, Get, Headers, Post, UnauthorizedException } from "@nestjs/common";
+﻿import { Body, Controller, Get, Headers, Post, Query, UnauthorizedException } from "@nestjs/common";
 import { AiChatDto } from "./dto/ai-chat.dto";
+import { ListAiUsageLogsQueryDto } from "./dto/list-ai-usage-logs-query.dto";
 import { UpsertAiProviderBindingDto } from "./dto/upsert-ai-provider-binding.dto";
-import { AiChatResponse, AiService, ListAiBindingsResponse } from "./ai.service";
+import {
+  AiChatResponse,
+  AiService,
+  ListAiBindingsResponse,
+  ListAiUsageLogsResponse
+} from "./ai.service";
 
 @Controller("ai")
 export class AiController {
@@ -12,6 +18,14 @@ export class AiController {
     @Headers("x-user-id") userIdHeader: string | string[] | undefined
   ): Promise<ListAiBindingsResponse> {
     return this.aiService.listBindings(this.resolveUserId(userIdHeader));
+  }
+
+  @Get("usage-logs")
+  async listUsageLogs(
+    @Headers("x-user-id") userIdHeader: string | string[] | undefined,
+    @Query() query: ListAiUsageLogsQueryDto
+  ): Promise<ListAiUsageLogsResponse> {
+    return this.aiService.listUsageLogs(this.resolveUserId(userIdHeader), query);
   }
 
   @Post("bindings")

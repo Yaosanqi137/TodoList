@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import {
   AiChannel,
+  AiUsageLog,
   AiProviderBinding,
   AiPublicPoolConfig,
   TaskPriority,
@@ -20,6 +21,7 @@ import {
 import { PrismaService } from "../src/prisma/prisma.service";
 
 type AiUsageLogRecord = {
+  id: string;
   userId: string | null;
   channel: AiChannel;
   providerName: string | null;
@@ -30,6 +32,7 @@ type AiUsageLogRecord = {
   latencyMs: number | null;
   success: boolean;
   errorCode: string | null;
+  createdAt: Date;
 };
 
 type AiTaskRecord = {
@@ -45,6 +48,7 @@ type AiTaskRecord = {
 class InMemoryAiPrismaService {
   private bindingIdSequence = 1;
   private publicPoolIdSequence = 1;
+  private usageLogIdSequence = 1;
   private bindings: AiProviderBinding[] = [];
   private publicPools: AiPublicPoolConfig[] = [];
   private usageLogs: AiUsageLogRecord[] = [];
@@ -197,9 +201,47 @@ class InMemoryAiPrismaService {
   };
 
   readonly aiUsageLog = {
-    create: async (args: { data: AiUsageLogRecord }) => {
-      this.usageLogs.push(args.data);
-      return args.data;
+    create: async (args: { data: Omit<AiUsageLog, "id" | "createdAt"> }) => {
+      const usageLog: AiUsageLogRecord = {
+        id: `usage_log_${this.usageLogIdSequence++}`,
+        createdAt: new Date(),
+        ...args.data
+      };
+
+      this.usageLogs.push(usageLog);
+      return usageLog;
+    },
+
+    findMany: async (args: {
+      where?: {
+        userId?: string;
+        channel?: AiChannel;
+        success?: boolean;
+      };
+      orderBy?: {
+        createdAt: "asc" | "desc";
+      };
+      skip?: number;
+      take?: number;
+    }) => {
+      const filteredLogs = this.filterUsageLogs(args.where);
+      const sortedLogs = [...filteredLogs].sort((left, right) => {
+        const direction = args.orderBy?.createdAt === "asc" ? 1 : -1;
+        return (left.createdAt.getTime() - right.createdAt.getTime()) * direction;
+      });
+      const start = args.skip ?? 0;
+      const end = args.take === undefined ? undefined : start + args.take;
+      return sortedLogs.slice(start, end);
+    },
+
+    count: async (args?: {
+      where?: {
+        userId?: string;
+        channel?: AiChannel;
+        success?: boolean;
+      };
+    }) => {
+      return this.filterUsageLogs(args?.where).length;
     }
   };
 
@@ -257,6 +299,33 @@ class InMemoryAiPrismaService {
 
   seedTask(task: AiTaskRecord): void {
     this.tasks.push(task);
+  }
+
+  seedUsageLog(log: Omit<AiUsageLogRecord, "id"> & { id?: string }): void {
+    this.usageLogs.push({
+      id: log.id ?? `usage_log_${this.usageLogIdSequence++}`,
+      ...log
+    });
+  }
+
+  private filterUsageLogs(where?: {
+    userId?: string;
+    channel?: AiChannel;
+    success?: boolean;
+  }): AiUsageLogRecord[] {
+    return this.usageLogs.filter((log) => {
+      if (where?.userId !== undefined && log.userId !== where.userId) {
+        return false;
+      }
+      if (where?.channel !== undefined && log.channel !== where.channel) {
+        return false;
+      }
+      if (where?.success !== undefined && log.success !== where.success) {
+        return false;
+      }
+
+      return true;
+    });
   }
 }
 
@@ -458,6 +527,7 @@ describe("AiController (integration)", () => {
     ]);
     expect(prismaService.getUsageLogs()).toEqual([
       {
+        id: expect.any(String),
         userId: "user_1",
         channel: AiChannel.USER_KEY,
         providerName: "openai",
@@ -467,9 +537,11 @@ describe("AiController (integration)", () => {
         totalTokens: 0,
         latencyMs: expect.any(Number),
         success: false,
-        errorCode: "UPSTREAM_UNREACHABLE"
+        errorCode: "UPSTREAM_UNREACHABLE",
+        createdAt: expect.any(Date)
       },
       {
+        id: expect.any(String),
         userId: "user_1",
         channel: AiChannel.ASTRBOT,
         providerName: "default",
@@ -479,7 +551,8 @@ describe("AiController (integration)", () => {
         totalTokens: 20,
         latencyMs: expect.any(Number),
         success: true,
-        errorCode: null
+        errorCode: null,
+        createdAt: expect.any(Date)
       }
     ]);
   });
@@ -592,5 +665,95 @@ describe("AiController (integration)", () => {
       }
     ]);
     expect(prismaService.getUsageLogs()).toEqual([]);
+  });
+  it("should list usage logs with pagination and filters", async () => {
+    prismaService.seedUsageLog({
+      id: "usage_log_1",
+      userId: "user_1",
+      channel: AiChannel.ASTRBOT,
+      providerName: "default",
+      model: "deepseek-chat",
+      promptTokens: 10,
+      completionTokens: 6,
+      totalTokens: 16,
+      latencyMs: 120,
+      success: true,
+      errorCode: null,
+      createdAt: new Date("2026-04-06T08:00:00.000Z")
+    });
+    prismaService.seedUsageLog({
+      id: "usage_log_2",
+      userId: "user_1",
+      channel: AiChannel.ASTRBOT,
+      providerName: "default",
+      model: "deepseek-chat",
+      promptTokens: 14,
+      completionTokens: 9,
+      totalTokens: 23,
+      latencyMs: 100,
+      success: true,
+      errorCode: null,
+      createdAt: new Date("2026-04-06T09:00:00.000Z")
+    });
+    prismaService.seedUsageLog({
+      id: "usage_log_3",
+      userId: "user_1",
+      channel: AiChannel.USER_KEY,
+      providerName: "openai",
+      model: "gpt-4o-mini",
+      promptTokens: 20,
+      completionTokens: 12,
+      totalTokens: 32,
+      latencyMs: 210,
+      success: false,
+      errorCode: "UPSTREAM_UNREACHABLE",
+      createdAt: new Date("2026-04-06T10:00:00.000Z")
+    });
+    prismaService.seedUsageLog({
+      id: "usage_log_4",
+      userId: "user_2",
+      channel: AiChannel.ASTRBOT,
+      providerName: "default",
+      model: "deepseek-chat",
+      promptTokens: 18,
+      completionTokens: 11,
+      totalTokens: 29,
+      latencyMs: 90,
+      success: true,
+      errorCode: null,
+      createdAt: new Date("2026-04-06T11:00:00.000Z")
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/ai/usage-logs")
+      .set("x-user-id", "user_1")
+      .query({
+        page: 2,
+        pageSize: 1,
+        channel: AiChannel.ASTRBOT,
+        success: true
+      })
+      .expect(200);
+
+    expect(response.body).toEqual({
+      items: [
+        {
+          id: "usage_log_1",
+          channel: AiChannel.ASTRBOT,
+          providerName: "default",
+          model: "deepseek-chat",
+          promptTokens: 10,
+          completionTokens: 6,
+          totalTokens: 16,
+          latencyMs: 120,
+          success: true,
+          errorCode: null,
+          createdAt: "2026-04-06T08:00:00.000Z"
+        }
+      ],
+      page: 2,
+      pageSize: 1,
+      total: 2
+    });
   });
 });
