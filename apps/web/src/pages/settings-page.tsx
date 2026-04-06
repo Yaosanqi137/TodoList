@@ -450,12 +450,6 @@ export function SettingsPage({ session }: SettingsPageProps) {
                     {bindingsResponse?.publicPool?.model || "未设置"}
                   </span>
                 </div>
-                <div>
-                  接口地址：
-                  <span className="ml-2 break-all text-foreground">
-                    {bindingsResponse?.publicPool?.endpoint || "未设置"}
-                  </span>
-                </div>
               </div>
             </section>
           </div>

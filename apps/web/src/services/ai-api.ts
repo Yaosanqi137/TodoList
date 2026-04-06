@@ -32,7 +32,6 @@ export type WebAiBindingsResponse = {
     enabled: boolean;
     providerName: string | null;
     model: string | null;
-    endpoint: string | null;
     hasApiKey: boolean;
   } | null;
 };

@@ -51,7 +51,6 @@ export type ListAiBindingsResponse = {
     enabled: boolean;
     providerName: string | null;
     model: string | null;
-    endpoint: string | null;
     hasApiKey: boolean;
   } | null;
 };
@@ -122,7 +121,6 @@ export class AiService {
             enabled: publicPool.enabled,
             providerName: publicPool.providerName,
             model: publicPool.model,
-            endpoint: publicPool.endpoint,
             hasApiKey: Boolean(publicPool.encryptedApiKey)
           }
         : null

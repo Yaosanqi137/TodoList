@@ -468,6 +468,30 @@ describe("AiController (integration)", () => {
     });
   });
 
+  it("should hide public pool endpoint from user bindings response", async () => {
+    prismaService.seedPublicPool({
+      enabled: true,
+      providerName: "public-openai",
+      model: "gpt-4o-mini",
+      encryptedApiKey: "sk-public",
+      endpoint: "https://internal.example.com/v1",
+      rpmLimit: 60,
+      dailyTokenLimit: 100000
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/ai/bindings")
+      .set("x-user-id", "user_1")
+      .expect(200);
+
+    expect(response.body.publicPool).toEqual({
+      enabled: true,
+      providerName: "public-openai",
+      model: "gpt-4o-mini",
+      hasApiKey: true
+    });
+  });
+
   it("should upsert one binding per user channel", async () => {
     await request(app.getHttpServer())
       .post("/ai/bindings")
