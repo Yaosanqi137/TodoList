@@ -9,6 +9,7 @@ import {
   ServerCrash
 } from "lucide-react";
 import { useSyncEngine, type SyncEngineStatus } from "@/hooks/use-sync-engine";
+import { AiAssistantPanel } from "@/components/ai/ai-assistant-panel";
 import { TaskRichEditor } from "@/components/task-rich-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -920,7 +921,7 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
       <div className="space-y-4">
         <SyncStatusCard syncStatus={syncStatus} onTriggerSync={triggerSync} />
 
-        <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
           <TaskListPanel
             tasks={taskList}
             selectedTaskId={selectedTaskId}
@@ -946,6 +947,8 @@ export function TodoShellPage({ session }: TodoShellPageProps) {
             onDdlChange={handleDdlChange}
             onEditorChange={handleEditorChange}
           />
+
+          <AiAssistantPanel session={session} />
         </div>
       </div>
     </>

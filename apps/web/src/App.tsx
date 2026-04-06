@@ -48,6 +48,8 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: "settings", label: "系统设置", icon: Settings }
 ];
 
+const READY_SIDEBAR_KEYS = new Set(["todo", "ai"]);
+
 function toWebSession(payload: EmailLoginResult): WebSession {
   return {
     accessToken: payload.accessToken,
@@ -151,9 +153,11 @@ function App() {
                       <span className="text-sm whitespace-nowrap text-foreground">
                         {item.label}
                       </span>
-                      <span className="ml-auto whitespace-nowrap rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground">
-                        即将上线
-                      </span>
+                      {READY_SIDEBAR_KEYS.has(item.key) ? null : (
+                        <span className="ml-auto whitespace-nowrap rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground">
+                          即将上线
+                        </span>
+                      )}
                     </>
                   )}
                 </button>
