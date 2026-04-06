@@ -1,4 +1,5 @@
-﻿import { IsOptional, IsString, MinLength } from "class-validator";
+import { IsEnum, IsOptional, IsString, MinLength } from "class-validator";
+import { AiChannel } from "../../../generated/prisma/client";
 
 export class AiChatDto {
   @IsString()
@@ -11,7 +12,6 @@ export class AiChatDto {
   sessionId?: string;
 
   @IsOptional()
-  @IsString()
-  @MinLength(1)
-  bindingId?: string;
+  @IsEnum(AiChannel)
+  channel?: AiChannel;
 }

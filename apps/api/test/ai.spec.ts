@@ -441,7 +441,6 @@ describe("AiController (integration)", () => {
         configId: "default",
         endpoint: "http://127.0.0.1:6185",
         apiKey: "abk_secret_1234",
-        isDefault: true,
         isEnabled: true
       })
       .expect(201);
@@ -465,8 +464,52 @@ describe("AiController (integration)", () => {
       configName: null,
       hasApiKey: true,
       maskedApiKey: "abk_***34",
-      isDefault: true
+      isEnabled: true
     });
+  });
+
+  it("should upsert one binding per user channel", async () => {
+    await request(app.getHttpServer())
+      .post("/ai/bindings")
+      .set("x-user-id", "user_1")
+      .send({
+        channel: AiChannel.USER_KEY,
+        providerName: "openai",
+        model: "gpt-4o-mini",
+        endpoint: "https://api.example.com",
+        apiKey: "sk-first",
+        isEnabled: true
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post("/ai/bindings")
+      .set("x-user-id", "user_1")
+      .send({
+        channel: AiChannel.USER_KEY,
+        providerName: "google",
+        model: "gemini-2.5-flash",
+        endpoint: "https://generativelanguage.googleapis.com",
+        apiKey: "sk-second",
+        isEnabled: false
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get("/ai/bindings")
+      .set("x-user-id", "user_1")
+      .expect(200);
+
+    expect(response.body.bindings).toEqual([
+      expect.objectContaining({
+        channel: AiChannel.USER_KEY,
+        providerName: "google",
+        model: "gemini-2.5-flash",
+        endpoint: "https://generativelanguage.googleapis.com",
+        isEnabled: false,
+        maskedApiKey: "sk-s***nd"
+      })
+    ]);
   });
 
   it("should fallback from user key to astrbot", async () => {
@@ -566,7 +609,6 @@ describe("AiController (integration)", () => {
         configId: "default",
         endpoint: "http://127.0.0.1:6185",
         apiKey: "abk_secret_1234",
-        isDefault: true,
         isEnabled: true
       })
       .expect(201);
@@ -575,8 +617,58 @@ describe("AiController (integration)", () => {
       channel: AiChannel.ASTRBOT,
       providerName: "",
       configId: "default",
-      configName: null
+      configName: null,
+      isEnabled: true
     });
+  });
+
+  it("should use selected channel without automatic fallback", async () => {
+    prismaService.seedBinding({
+      id: "binding_user_key_selected",
+      userId: "user_1",
+      channel: AiChannel.USER_KEY,
+      providerName: "openai",
+      model: "gpt-4o-mini",
+      configId: null,
+      configName: null,
+      encryptedApiKey: "sk-user",
+      endpoint: "https://api.example.com",
+      isDefault: false,
+      isEnabled: true
+    });
+    prismaService.seedBinding({
+      id: "binding_astrbot_selected",
+      userId: "user_1",
+      channel: AiChannel.ASTRBOT,
+      providerName: "",
+      model: null,
+      configId: "default",
+      configName: null,
+      encryptedApiKey: "abk_astrbot",
+      endpoint: "http://127.0.0.1:6185",
+      isDefault: false,
+      isEnabled: true
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/ai/chat")
+      .set("x-user-id", "user_1")
+      .send({
+        message: "只使用自备渠道",
+        channel: AiChannel.USER_KEY
+      })
+      .expect(502);
+
+    expect(response.body.attempts).toEqual([
+      {
+        channel: AiChannel.USER_KEY,
+        providerName: "openai",
+        model: "gpt-4o-mini",
+        status: "failed",
+        reasonCode: "UPSTREAM_UNREACHABLE",
+        reasonMessage: "用户自备 Key 渠道暂时不可用"
+      }
+    ]);
   });
 
   it("should inject unfinished task summary into ai prompt", async () => {

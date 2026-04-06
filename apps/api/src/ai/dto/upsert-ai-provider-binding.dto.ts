@@ -1,12 +1,7 @@
-﻿import { AiChannel } from "../../../generated/prisma/client";
+import { AiChannel } from "../../../generated/prisma/client";
 import { IsBoolean, IsEnum, IsOptional, IsString, IsUrl, MinLength } from "class-validator";
 
 export class UpsertAiProviderBindingDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  id?: string;
-
   @IsEnum(AiChannel)
   channel!: AiChannel;
 
@@ -36,7 +31,7 @@ export class UpsertAiProviderBindingDto {
       require_tld: false
     },
     {
-      message: "endpoint 必须是合法的 URL"
+      message: "endpoint \u5fc5\u987b\u662f\u5408\u6cd5\u7684 URL"
     }
   )
   endpoint?: string;
@@ -45,10 +40,6 @@ export class UpsertAiProviderBindingDto {
   @IsString()
   @MinLength(1)
   apiKey?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isDefault?: boolean;
 
   @IsOptional()
   @IsBoolean()

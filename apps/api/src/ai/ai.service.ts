@@ -1,10 +1,4 @@
-﻿import {
-  BadGatewayException,
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException
-} from "@nestjs/common";
+import { BadGatewayException, BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
   AiChannel,
   AiUsageLog,
@@ -34,7 +28,6 @@ type AiBindingSummary = {
   configId: string | null;
   configName: string | null;
   endpoint: string | null;
-  isDefault: boolean;
   isEnabled: boolean;
   hasApiKey: boolean;
   maskedApiKey: string | null;
@@ -110,7 +103,7 @@ export class AiService {
         where: {
           userId
         },
-        orderBy: [{ channel: "asc" }, { isDefault: "desc" }, { updatedAt: "desc" }]
+        orderBy: [{ updatedAt: "desc" }]
       }),
       this.prismaService.aiPublicPoolConfig.findFirst({
         orderBy: {
@@ -119,9 +112,11 @@ export class AiService {
       })
     ]);
 
+    const latestBindings = this.pickLatestBindingsByChannel(bindings);
+
     return {
       routeOrder: [AiChannel.USER_KEY, AiChannel.ASTRBOT, AiChannel.PUBLIC_POOL],
-      bindings: bindings.map((binding) => this.serializeBinding(binding)),
+      bindings: latestBindings.map((binding) => this.serializeBinding(binding)),
       publicPool: publicPool
         ? {
             enabled: publicPool.enabled,
@@ -183,27 +178,17 @@ export class AiService {
     this.validateBindingInput(dto);
 
     const result = await this.prismaService.$transaction(async (tx) => {
-      if (dto.isDefault) {
-        const where: Prisma.AiProviderBindingWhereInput = {
+      const existingBinding = await tx.aiProviderBinding.findFirst({
+        where: {
           userId,
           channel: dto.channel
-        };
-
-        if (dto.id) {
-          where.id = {
-            not: dto.id
-          };
+        },
+        orderBy: {
+          updatedAt: "desc"
         }
+      });
 
-        await tx.aiProviderBinding.updateMany({
-          where,
-          data: {
-            isDefault: false
-          }
-        });
-      }
-
-      if (!dto.id) {
+      if (!existingBinding) {
         return tx.aiProviderBinding.create({
           data: {
             userId,
@@ -214,21 +199,9 @@ export class AiService {
             configName: this.normalizeOptionalString(dto.configName),
             endpoint: this.normalizeOptionalString(dto.endpoint),
             encryptedApiKey: this.normalizeOptionalString(dto.apiKey),
-            isDefault: dto.isDefault ?? false,
             isEnabled: dto.isEnabled ?? true
           }
         });
-      }
-
-      const existingBinding = await tx.aiProviderBinding.findFirst({
-        where: {
-          id: dto.id,
-          userId
-        }
-      });
-
-      if (!existingBinding) {
-        throw new NotFoundException("AI 通道配置不存在");
       }
 
       const updateData: Prisma.AiProviderBindingUpdateInput = {
@@ -237,7 +210,6 @@ export class AiService {
         model: this.normalizeOptionalString(dto.model),
         configId: this.normalizeOptionalString(dto.configId),
         configName: this.normalizeOptionalString(dto.configName),
-        isDefault: dto.isDefault ?? existingBinding.isDefault,
         isEnabled: dto.isEnabled ?? existingBinding.isEnabled
       };
 
@@ -251,7 +223,7 @@ export class AiService {
 
       return tx.aiProviderBinding.update({
         where: {
-          id: dto.id
+          id: existingBinding.id
         },
         data: updateData
       });
@@ -262,7 +234,7 @@ export class AiService {
 
   async chat(userId: string, dto: AiChatDto): Promise<AiChatResponse> {
     const attempts: AiRouteAttempt[] = [];
-    const plan = await this.buildRoutePlan(userId, dto.bindingId ?? null);
+    const plan = await this.buildRoutePlan(userId, dto.channel ?? null);
     const promptMessage = await this.buildPromptMessage(userId, dto.message);
 
     for (const entry of plan) {
@@ -337,33 +309,34 @@ export class AiService {
 
   private async buildRoutePlan(
     userId: string,
-    bindingId: string | null
+    selectedChannel: AiChannel | null
   ): Promise<AiRoutePlanEntry[]> {
     const plan: AiRoutePlanEntry[] = [];
-    const consumedChannels = new Set<AiChannel>();
+    const targetChannels = selectedChannel
+      ? [selectedChannel]
+      : [AiChannel.USER_KEY, AiChannel.ASTRBOT, AiChannel.PUBLIC_POOL];
 
-    if (bindingId) {
-      const pinnedBinding = await this.prismaService.aiProviderBinding.findFirst({
-        where: {
-          id: bindingId,
-          userId,
-          isEnabled: true
+    for (const channel of targetChannels) {
+      if (channel === AiChannel.PUBLIC_POOL) {
+        const publicPool = await this.findEnabledPublicPool();
+        if (publicPool) {
+          plan.push({
+            kind: "candidate",
+            candidate: this.toPublicPoolCandidate(publicPool)
+          });
+        } else {
+          plan.push({
+            kind: "skip",
+            attempt: {
+              channel: AiChannel.PUBLIC_POOL,
+              providerName: null,
+              model: null,
+              status: "skipped",
+              reasonCode: "PUBLIC_POOL_DISABLED",
+              reasonMessage: "公共 AI 通道未开启"
+            }
+          });
         }
-      });
-
-      if (!pinnedBinding) {
-        throw new NotFoundException("指定的 AI 通道配置不存在或已禁用");
-      }
-
-      plan.push({
-        kind: "candidate",
-        candidate: this.toBindingCandidate(pinnedBinding)
-      });
-      consumedChannels.add(pinnedBinding.channel);
-    }
-
-    for (const channel of [AiChannel.USER_KEY, AiChannel.ASTRBOT]) {
-      if (consumedChannels.has(channel)) {
         continue;
       }
 
@@ -392,26 +365,6 @@ export class AiService {
       });
     }
 
-    const publicPool = await this.findEnabledPublicPool();
-    if (publicPool) {
-      plan.push({
-        kind: "candidate",
-        candidate: this.toPublicPoolCandidate(publicPool)
-      });
-    } else {
-      plan.push({
-        kind: "skip",
-        attempt: {
-          channel: AiChannel.PUBLIC_POOL,
-          providerName: null,
-          model: null,
-          status: "skipped",
-          reasonCode: "PUBLIC_POOL_DISABLED",
-          reasonMessage: "公共 AI 通道未开启"
-        }
-      });
-    }
-
     return plan;
   }
 
@@ -425,7 +378,9 @@ export class AiService {
         channel,
         isEnabled: true
       },
-      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }]
+      orderBy: {
+        updatedAt: "desc"
+      }
     });
   }
 
@@ -477,12 +432,25 @@ export class AiService {
       configId: binding.configId,
       configName: binding.configName,
       endpoint: binding.endpoint,
-      isDefault: binding.isDefault,
       isEnabled: binding.isEnabled,
       hasApiKey: Boolean(binding.encryptedApiKey),
       maskedApiKey: this.maskSecret(binding.encryptedApiKey),
       updatedAt: binding.updatedAt.toISOString()
     };
+  }
+
+  private pickLatestBindingsByChannel(bindings: AiProviderBinding[]): AiProviderBinding[] {
+    const bindingMap = new Map<AiChannel, AiProviderBinding>();
+
+    for (const binding of bindings) {
+      if (!bindingMap.has(binding.channel)) {
+        bindingMap.set(binding.channel, binding);
+      }
+    }
+
+    return [AiChannel.USER_KEY, AiChannel.ASTRBOT]
+      .map((channel) => bindingMap.get(channel) ?? null)
+      .filter((binding): binding is AiProviderBinding => binding !== null);
   }
 
   private serializeUsageLog(log: AiUsageLog): AiUsageLogSummary {
