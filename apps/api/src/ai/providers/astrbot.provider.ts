@@ -57,8 +57,8 @@ export class AstrbotProvider implements AiChannelExecutor {
       );
     }
 
-    const rawText = await response.text();
     if (!response.ok) {
+      const rawText = await response.text();
       throw new AiRouteFailureError(
         candidate.channel,
         candidate.providerName,
@@ -67,7 +67,7 @@ export class AstrbotProvider implements AiChannelExecutor {
       );
     }
 
-    const events = this.parseSseEvents(rawText);
+    const events = await this.readSseEvents(response);
     let content = "";
     let sessionId = input.sessionId;
 
@@ -165,6 +165,55 @@ export class AstrbotProvider implements AiChannelExecutor {
         }
       })
       .filter((item): item is Record<string, unknown> => item !== null);
+  }
+
+  private async readSseEvents(response: Response): Promise<Array<Record<string, unknown>>> {
+    if (!response.body) {
+      return this.parseSseEvents(await response.text());
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const events: Array<Record<string, unknown>> = [];
+    let buffer = "";
+    let reachedEndEvent = false;
+
+    try {
+      while (!reachedEndEvent) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const segments = buffer.split(/\r?\n\r?\n/);
+        buffer = segments.pop() ?? "";
+
+        for (const segment of segments) {
+          const parsedEvents = this.parseSseEvents(segment);
+          for (const event of parsedEvents) {
+            events.push(event);
+            if (this.readString(event["type"]) === "end") {
+              reachedEndEvent = true;
+              break;
+            }
+          }
+
+          if (reachedEndEvent) {
+            break;
+          }
+        }
+      }
+
+      const tail = `${buffer}${decoder.decode()}`;
+      if (tail.trim().length > 0) {
+        events.push(...this.parseSseEvents(tail));
+      }
+    } finally {
+      await reader.cancel();
+    }
+
+    return events;
   }
 
   private extractHttpErrorMessage(rawText: string, statusCode: number): string {
