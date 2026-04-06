@@ -273,6 +273,8 @@ model AiProviderBinding {
   channel         AiChannel
   providerName    String
   model           String?
+  configId        String?
+  configName      String?
   encryptedApiKey String?
   endpoint        String?
   isDefault       Boolean   @default(false)

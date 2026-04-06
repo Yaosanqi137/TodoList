@@ -5,7 +5,11 @@ import { AiChannel, AiProviderBinding, AiPublicPoolConfig } from "../generated/p
 import { AiController } from "../src/ai/ai.controller";
 import { AiProviderRegistryService } from "../src/ai/ai-provider-registry.service";
 import { AiService } from "../src/ai/ai.service";
-import { AiChannelExecutor, AiRouteFailureError } from "../src/ai/ai.types";
+import {
+  AiChannelExecutor,
+  AiResolvedRouteCandidate,
+  AiRouteFailureError
+} from "../src/ai/ai.types";
 import { PrismaService } from "../src/prisma/prisma.service";
 
 class InMemoryAiPrismaService {
@@ -65,6 +69,8 @@ class InMemoryAiPrismaService {
         channel: AiChannel;
         providerName: string;
         model: string | null;
+        configId: string | null;
+        configName: string | null;
         endpoint: string | null;
         encryptedApiKey: string | null;
         isDefault: boolean;
@@ -78,6 +84,8 @@ class InMemoryAiPrismaService {
         channel: args.data.channel,
         providerName: args.data.providerName,
         model: args.data.model,
+        configId: args.data.configId,
+        configName: args.data.configName,
         encryptedApiKey: args.data.encryptedApiKey,
         endpoint: args.data.endpoint,
         isDefault: args.data.isDefault,
@@ -189,12 +197,12 @@ class StaticExecutor implements AiChannelExecutor {
     }
   ) {}
 
-  async execute(candidate: { channel: AiChannel; providerName: string; model: string | null }) {
+  async execute(candidate: AiResolvedRouteCandidate) {
     const result = this.resolver(candidate.channel);
     if (result.code) {
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        candidate.providerName || candidate.configName || candidate.configId || "unknown",
         result.code,
         result.message ?? "执行失败"
       );
@@ -202,7 +210,7 @@ class StaticExecutor implements AiChannelExecutor {
 
     return {
       channel: candidate.channel,
-      providerName: candidate.providerName,
+      providerName: candidate.providerName || candidate.configName || candidate.configId || "",
       model: candidate.model,
       content: result.content ?? "",
       sessionId: "session_ai",
@@ -273,6 +281,7 @@ describe("AiController (integration)", () => {
         channel: AiChannel.ASTRBOT,
         providerName: "astrbot-main",
         model: "deepseek-chat",
+        configId: "default",
         endpoint: "http://127.0.0.1:6185",
         apiKey: "abk_secret_1234",
         isDefault: true,
@@ -295,6 +304,8 @@ describe("AiController (integration)", () => {
       channel: AiChannel.ASTRBOT,
       providerName: "astrbot-main",
       model: "deepseek-chat",
+      configId: "default",
+      configName: null,
       hasApiKey: true,
       maskedApiKey: "abk_***34",
       isDefault: true
@@ -308,6 +319,8 @@ describe("AiController (integration)", () => {
       channel: AiChannel.USER_KEY,
       providerName: "openai",
       model: "gpt-4o-mini",
+      configId: null,
+      configName: null,
       encryptedApiKey: "sk-user",
       endpoint: "https://api.example.com",
       isDefault: true,
@@ -317,8 +330,10 @@ describe("AiController (integration)", () => {
       id: "binding_astrbot",
       userId: "user_1",
       channel: AiChannel.ASTRBOT,
-      providerName: "astrbot-main",
-      model: "deepseek-chat",
+      providerName: "",
+      model: null,
+      configId: "default",
+      configName: null,
       encryptedApiKey: "abk_astrbot",
       endpoint: "http://127.0.0.1:6185",
       isDefault: true,
@@ -346,13 +361,35 @@ describe("AiController (integration)", () => {
       },
       {
         channel: AiChannel.ASTRBOT,
-        providerName: "astrbot-main",
-        model: "deepseek-chat",
+        providerName: "default",
+        model: null,
         status: "success",
         reasonCode: null,
         reasonMessage: null
       }
     ]);
+  });
+
+  it("should allow astrbot binding with config id only", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/ai/bindings")
+      .set("x-user-id", "user_1")
+      .send({
+        channel: AiChannel.ASTRBOT,
+        configId: "default",
+        endpoint: "http://127.0.0.1:6185",
+        apiKey: "abk_secret_1234",
+        isDefault: true,
+        isEnabled: true
+      })
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      channel: AiChannel.ASTRBOT,
+      providerName: "",
+      configId: "default",
+      configName: null
+    });
   });
 
   it("should return skipped attempts when no channel is available", async () => {

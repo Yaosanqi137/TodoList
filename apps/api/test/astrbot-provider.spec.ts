@@ -59,6 +59,8 @@ describe("AstrbotProvider", () => {
           sourceId: "binding_1",
           providerName: "",
           model: null,
+          configId: "default",
+          configName: null,
           endpoint: "http://127.0.0.1:6185",
           apiKey: "abk_test"
         },

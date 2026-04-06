@@ -22,6 +22,8 @@ type AiBindingSummary = {
   channel: AiChannel;
   providerName: string;
   model: string | null;
+  configId: string | null;
+  configName: string | null;
   endpoint: string | null;
   isDefault: boolean;
   isEnabled: boolean;
@@ -105,6 +107,8 @@ export class AiService {
       throw new BadRequestException("公共 AI 通道只能由管理员配置");
     }
 
+    this.validateBindingInput(dto);
+
     const result = await this.prismaService.$transaction(async (tx) => {
       if (dto.isDefault) {
         const where: Prisma.AiProviderBindingWhereInput = {
@@ -131,8 +135,10 @@ export class AiService {
           data: {
             userId,
             channel: dto.channel,
-            providerName: dto.providerName.trim(),
+            providerName: this.normalizeProviderName(dto.providerName),
             model: this.normalizeOptionalString(dto.model),
+            configId: this.normalizeOptionalString(dto.configId),
+            configName: this.normalizeOptionalString(dto.configName),
             endpoint: this.normalizeOptionalString(dto.endpoint),
             encryptedApiKey: this.normalizeOptionalString(dto.apiKey),
             isDefault: dto.isDefault ?? false,
@@ -154,8 +160,10 @@ export class AiService {
 
       const updateData: Prisma.AiProviderBindingUpdateInput = {
         channel: dto.channel,
-        providerName: dto.providerName.trim(),
+        providerName: this.normalizeProviderName(dto.providerName),
         model: this.normalizeOptionalString(dto.model),
+        configId: this.normalizeOptionalString(dto.configId),
+        configName: this.normalizeOptionalString(dto.configName),
         isDefault: dto.isDefault ?? existingBinding.isDefault,
         isEnabled: dto.isEnabled ?? existingBinding.isEnabled
       };
@@ -342,6 +350,8 @@ export class AiService {
       sourceId: binding.id,
       providerName: binding.providerName,
       model: binding.model,
+      configId: binding.configId,
+      configName: binding.configName,
       endpoint: binding.endpoint,
       apiKey: binding.encryptedApiKey
     };
@@ -354,6 +364,8 @@ export class AiService {
       sourceId: publicPool.id,
       providerName: publicPool.providerName ?? "public-pool",
       model: publicPool.model,
+      configId: null,
+      configName: null,
       endpoint: publicPool.endpoint,
       apiKey: publicPool.encryptedApiKey
     };
@@ -365,6 +377,8 @@ export class AiService {
       channel: binding.channel,
       providerName: binding.providerName,
       model: binding.model,
+      configId: binding.configId,
+      configName: binding.configName,
       endpoint: binding.endpoint,
       isDefault: binding.isDefault,
       isEnabled: binding.isEnabled,
@@ -414,6 +428,29 @@ export class AiService {
 
     const normalizedValue = value.trim();
     return normalizedValue.length > 0 ? normalizedValue : null;
+  }
+
+  private normalizeProviderName(value: string | undefined): string {
+    return this.normalizeOptionalString(value) ?? "";
+  }
+
+  private validateBindingInput(dto: UpsertAiProviderBindingDto): void {
+    const providerName = this.normalizeOptionalString(dto.providerName);
+    const configId = this.normalizeOptionalString(dto.configId);
+    const configName = this.normalizeOptionalString(dto.configName);
+
+    if (dto.channel === AiChannel.ASTRBOT) {
+      if (!providerName && !configId && !configName) {
+        throw new BadRequestException(
+          "AstrBot 通道至少需要 providerName、configId、configName 三者之一"
+        );
+      }
+      return;
+    }
+
+    if (!providerName) {
+      throw new BadRequestException("当前通道必须提供 providerName");
+    }
   }
 
   private maskSecret(secret: string | null): string | null {

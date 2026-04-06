@@ -10,10 +10,13 @@ import {
 @Injectable()
 export class AstrbotProvider implements AiChannelExecutor {
   async execute(candidate: AiResolvedRouteCandidate, input: AiChatInput): Promise<AiChatResult> {
+    const routeLabel =
+      candidate.providerName || candidate.configName || candidate.configId || "astrbot";
+
     if (!candidate.endpoint) {
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        routeLabel,
         "MISSING_ENDPOINT",
         "缺少 AstrBot 服务地址配置"
       );
@@ -22,7 +25,7 @@ export class AstrbotProvider implements AiChannelExecutor {
     if (!candidate.apiKey) {
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        routeLabel,
         "MISSING_API_KEY",
         "缺少 AstrBot API Key 配置"
       );
@@ -43,6 +46,8 @@ export class AstrbotProvider implements AiChannelExecutor {
           session_id: input.sessionId ?? undefined,
           message: input.message,
           enable_streaming: false,
+          config_id: candidate.configId ?? undefined,
+          config_name: candidate.configName ?? undefined,
           selected_provider: candidate.providerName || undefined,
           selected_model: candidate.model ?? undefined
         }),
@@ -51,7 +56,7 @@ export class AstrbotProvider implements AiChannelExecutor {
     } catch (error) {
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        routeLabel,
         "UPSTREAM_UNREACHABLE",
         this.toErrorMessage(error, "AstrBot 服务请求失败")
       );
@@ -61,7 +66,7 @@ export class AstrbotProvider implements AiChannelExecutor {
       const rawText = await response.text();
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        routeLabel,
         `UPSTREAM_HTTP_${response.status}`,
         this.extractHttpErrorMessage(rawText, response.status)
       );
@@ -81,7 +86,7 @@ export class AstrbotProvider implements AiChannelExecutor {
       if (type === "error") {
         throw new AiRouteFailureError(
           candidate.channel,
-          candidate.providerName,
+          routeLabel,
           this.readString(event["code"]) ?? "ASTRBOT_ERROR",
           this.readString(event["data"]) ?? "AstrBot 返回错误"
         );
@@ -116,7 +121,7 @@ export class AstrbotProvider implements AiChannelExecutor {
     if (!content.trim()) {
       throw new AiRouteFailureError(
         candidate.channel,
-        candidate.providerName,
+        routeLabel,
         "EMPTY_RESPONSE",
         "AstrBot 没有返回有效内容"
       );
@@ -124,7 +129,7 @@ export class AstrbotProvider implements AiChannelExecutor {
 
     return {
       channel: candidate.channel,
-      providerName: candidate.providerName,
+      providerName: routeLabel,
       model: candidate.model,
       content,
       sessionId,

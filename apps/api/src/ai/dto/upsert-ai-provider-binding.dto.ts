@@ -10,14 +10,25 @@ export class UpsertAiProviderBindingDto {
   @IsEnum(AiChannel)
   channel!: AiChannel;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  providerName!: string;
+  providerName?: string;
 
   @IsOptional()
   @IsString()
   @MinLength(1)
   model?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  configId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  configName?: string;
 
   @IsOptional()
   @IsUrl(

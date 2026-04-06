@@ -6,6 +6,8 @@ export type AiResolvedRouteCandidate = {
   sourceId: string | null;
   providerName: string;
   model: string | null;
+  configId: string | null;
+  configName: string | null;
   endpoint: string | null;
   apiKey: string | null;
 };
