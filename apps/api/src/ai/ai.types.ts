@@ -24,7 +24,14 @@ export type AiChatResult = {
   model: string | null;
   content: string;
   sessionId: string | null;
+  usage: AiUsageMetrics | null;
   raw: unknown;
+};
+
+export type AiUsageMetrics = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 };
 
 export type AiRouteAttempt = {

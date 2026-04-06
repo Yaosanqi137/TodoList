@@ -15,7 +15,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AiProviderRegistryService } from "./ai-provider-registry.service";
 import { AiChatDto } from "./dto/ai-chat.dto";
 import { UpsertAiProviderBindingDto } from "./dto/upsert-ai-provider-binding.dto";
-import { AiResolvedRouteCandidate, AiRouteAttempt, AiRouteFailureError } from "./ai.types";
+import {
+  AiResolvedRouteCandidate,
+  AiRouteAttempt,
+  AiRouteFailureError,
+  AiUsageMetrics
+} from "./ai.types";
 
 type AiBindingSummary = {
   id: string;
@@ -198,6 +203,7 @@ export class AiService {
       }
 
       const executor = this.aiProviderRegistryService.getExecutor(entry.candidate.channel);
+      const startedAt = Date.now();
 
       try {
         const result = await executor.execute(entry.candidate, {
@@ -205,6 +211,7 @@ export class AiService {
           message: dto.message,
           sessionId: dto.sessionId ?? null
         });
+        const latencyMs = Date.now() - startedAt;
 
         attempts.push({
           channel: result.channel,
@@ -213,6 +220,16 @@ export class AiService {
           status: "success",
           reasonCode: null,
           reasonMessage: null
+        });
+        await this.recordUsageLog({
+          userId,
+          channel: result.channel,
+          providerName: result.providerName,
+          model: result.model,
+          usage: result.usage,
+          latencyMs,
+          success: true,
+          errorCode: null
         });
 
         return {
@@ -224,8 +241,19 @@ export class AiService {
           attempts
         };
       } catch (error) {
+        const latencyMs = Date.now() - startedAt;
         const failureAttempt = this.toFailureAttempt(entry.candidate, error);
         attempts.push(failureAttempt);
+        await this.recordUsageLog({
+          userId,
+          channel: failureAttempt.channel,
+          providerName: failureAttempt.providerName,
+          model: failureAttempt.model,
+          usage: null,
+          latencyMs,
+          success: false,
+          errorCode: failureAttempt.reasonCode
+        });
         this.logger.warn(
           `AI 通道降级：channel=${failureAttempt.channel} provider=${failureAttempt.providerName ?? "unknown"} code=${failureAttempt.reasonCode ?? "UNKNOWN"} message=${failureAttempt.reasonMessage ?? "unknown"}`
         );
@@ -463,5 +491,36 @@ export class AiService {
     }
 
     return `${secret.slice(0, 4)}***${secret.slice(-2)}`;
+  }
+
+  private async recordUsageLog(input: {
+    userId: string;
+    channel: AiChannel;
+    providerName: string | null;
+    model: string | null;
+    usage: AiUsageMetrics | null;
+    latencyMs: number;
+    success: boolean;
+    errorCode: string | null;
+  }): Promise<void> {
+    try {
+      await this.prismaService.aiUsageLog.create({
+        data: {
+          userId: input.userId,
+          channel: input.channel,
+          providerName: input.providerName,
+          model: input.model,
+          promptTokens: input.usage?.promptTokens ?? 0,
+          completionTokens: input.usage?.completionTokens ?? 0,
+          totalTokens: input.usage?.totalTokens ?? 0,
+          latencyMs: input.latencyMs,
+          success: input.success,
+          errorCode: input.errorCode
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      this.logger.warn(`写入 AI 使用日志失败：${message}`);
+    }
   }
 }

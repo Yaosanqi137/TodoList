@@ -12,11 +12,25 @@ import {
 } from "../src/ai/ai.types";
 import { PrismaService } from "../src/prisma/prisma.service";
 
+type AiUsageLogRecord = {
+  userId: string | null;
+  channel: AiChannel;
+  providerName: string | null;
+  model: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  latencyMs: number | null;
+  success: boolean;
+  errorCode: string | null;
+};
+
 class InMemoryAiPrismaService {
   private bindingIdSequence = 1;
   private publicPoolIdSequence = 1;
   private bindings: AiProviderBinding[] = [];
   private publicPools: AiPublicPoolConfig[] = [];
+  private usageLogs: AiUsageLogRecord[] = [];
 
   readonly aiProviderBinding = {
     findMany: async (args: {
@@ -164,6 +178,13 @@ class InMemoryAiPrismaService {
     }
   };
 
+  readonly aiUsageLog = {
+    create: async (args: { data: AiUsageLogRecord }) => {
+      this.usageLogs.push(args.data);
+      return args.data;
+    }
+  };
+
   async $transaction<T>(callback: (tx: InMemoryAiPrismaService) => Promise<T>): Promise<T> {
     return callback(this);
   }
@@ -185,6 +206,10 @@ class InMemoryAiPrismaService {
       updatedAt: now,
       ...publicPool
     });
+  }
+
+  getUsageLogs(): AiUsageLogRecord[] {
+    return [...this.usageLogs];
   }
 }
 
@@ -214,6 +239,11 @@ class StaticExecutor implements AiChannelExecutor {
       model: candidate.model,
       content: result.content ?? "",
       sessionId: "session_ai",
+      usage: {
+        promptTokens: 12,
+        completionTokens: 8,
+        totalTokens: 20
+      },
       raw: null
     };
   }
@@ -368,6 +398,32 @@ describe("AiController (integration)", () => {
         reasonMessage: null
       }
     ]);
+    expect(prismaService.getUsageLogs()).toEqual([
+      {
+        userId: "user_1",
+        channel: AiChannel.USER_KEY,
+        providerName: "openai",
+        model: "gpt-4o-mini",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        latencyMs: expect.any(Number),
+        success: false,
+        errorCode: "UPSTREAM_UNREACHABLE"
+      },
+      {
+        userId: "user_1",
+        channel: AiChannel.ASTRBOT,
+        providerName: "default",
+        model: null,
+        promptTokens: 12,
+        completionTokens: 8,
+        totalTokens: 20,
+        latencyMs: expect.any(Number),
+        success: true,
+        errorCode: null
+      }
+    ]);
   });
 
   it("should allow astrbot binding with config id only", async () => {
@@ -428,5 +484,6 @@ describe("AiController (integration)", () => {
         reasonMessage: "公共 AI 通道未开启"
       }
     ]);
+    expect(prismaService.getUsageLogs()).toEqual([]);
   });
 });

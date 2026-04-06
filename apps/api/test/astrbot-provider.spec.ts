@@ -31,6 +31,15 @@ describe("AstrbotProvider", () => {
 
         if (pullCount === 3) {
           controller.enqueue(
+            encoder.encode(
+              'data: {"type":"agent_stats","data":{"token_usage":{"input_other":12,"input_cached":30,"output":8}}}\n\n'
+            )
+          );
+          return;
+        }
+
+        if (pullCount === 4) {
+          controller.enqueue(
             encoder.encode('data: {"type":"end","data":"","streaming":false}\n\n')
           );
           return;
@@ -77,6 +86,11 @@ describe("AstrbotProvider", () => {
 
     expect(result.content).toBe("TodoList AstrBot 已连接");
     expect(result.sessionId).toBe("session_1");
-    expect(pullCount).toBeGreaterThanOrEqual(3);
+    expect(result.usage).toEqual({
+      promptTokens: 42,
+      completionTokens: 8,
+      totalTokens: 50
+    });
+    expect(pullCount).toBeGreaterThanOrEqual(4);
   });
 });

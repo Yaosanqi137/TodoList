@@ -133,6 +133,7 @@ export class AstrbotProvider implements AiChannelExecutor {
       model: candidate.model,
       content,
       sessionId,
+      usage: this.extractUsage(events),
       raw: events
     };
   }
@@ -247,5 +248,40 @@ export class AstrbotProvider implements AiChannelExecutor {
     }
 
     return fallback;
+  }
+
+  private extractUsage(events: Array<Record<string, unknown>>): AiChatResult["usage"] {
+    for (const event of events) {
+      if (this.readString(event["type"]) !== "agent_stats") {
+        continue;
+      }
+
+      const data = this.asRecord(event["data"]);
+      const tokenUsage = this.asRecord(data?.["token_usage"]);
+      if (!tokenUsage) {
+        continue;
+      }
+
+      const promptTokens =
+        (this.readNumber(tokenUsage["input_other"]) ?? 0) +
+        (this.readNumber(tokenUsage["input_cached"]) ?? 0);
+      const completionTokens = this.readNumber(tokenUsage["output"]) ?? 0;
+
+      return {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens
+      };
+    }
+
+    return null;
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+  }
+
+  private readNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 }

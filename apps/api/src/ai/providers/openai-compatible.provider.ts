@@ -105,6 +105,7 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
       model: this.extractModel(payload) ?? candidate.model,
       content,
       sessionId: input.sessionId,
+      usage: this.extractUsage(payload),
       raw: payload
     };
   }
@@ -176,6 +177,31 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
     return payload["model"];
   }
 
+  private extractUsage(payload: unknown): AiChatResult["usage"] {
+    if (!this.isRecord(payload)) {
+      return null;
+    }
+
+    const usage = payload["usage"];
+    if (!this.isRecord(usage)) {
+      return null;
+    }
+
+    const promptTokens = this.readNumber(usage["prompt_tokens"]);
+    const completionTokens = this.readNumber(usage["completion_tokens"]);
+    const totalTokens = this.readNumber(usage["total_tokens"]);
+
+    if (promptTokens === null && completionTokens === null && totalTokens === null) {
+      return null;
+    }
+
+    return {
+      promptTokens: promptTokens ?? 0,
+      completionTokens: completionTokens ?? 0,
+      totalTokens: totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0)
+    };
+  }
+
   private extractErrorMessage(payload: unknown, fallback: string): string {
     if (!this.isRecord(payload)) {
       return fallback;
@@ -199,5 +225,9 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
     }
 
     return fallback;
+  }
+
+  private readNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 }
