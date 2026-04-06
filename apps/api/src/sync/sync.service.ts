@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { DataEncryptionService } from "../security/data-encryption.service";
 import { SyncPullQueryDto } from "./dto/sync-pull.dto";
 import { SyncPushDto, SyncPushOperationDto } from "./dto/sync-push.dto";
 
@@ -60,7 +61,10 @@ export type SyncPullResponse = {
 
 @Injectable()
 export class SyncService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly dataEncryptionService: DataEncryptionService
+  ) {}
 
   async pullOperations(userId: string, query: SyncPullQueryDto): Promise<SyncPullResponse> {
     const limit = query.limit ?? 100;
@@ -137,7 +141,7 @@ export class SyncService {
             entityType: operation.entityType,
             entityId: operation.entityId,
             action: operation.action,
-            payload: operation.payload,
+            payload: this.dataEncryptionService.encryptString(operation.payload) ?? undefined,
             clientTs: new Date(operation.clientTs)
           },
           select: {
@@ -252,15 +256,7 @@ export class SyncService {
   }
 
   private serializePayload(payload: Prisma.JsonValue | null): string | null {
-    if (payload === null) {
-      return null;
-    }
-
-    if (typeof payload === "string") {
-      return payload;
-    }
-
-    return JSON.stringify(payload);
+    return this.dataEncryptionService.decryptPayload(payload);
   }
 
   private parseCursor(cursor: string | undefined): SyncPullCursorState | null {

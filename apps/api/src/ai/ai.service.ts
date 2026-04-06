@@ -9,6 +9,7 @@ import {
   TaskStatus
 } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { DataEncryptionService } from "../security/data-encryption.service";
 import { AiProviderRegistryService } from "./ai-provider-registry.service";
 import { AiChatDto } from "./dto/ai-chat.dto";
 import { ListAiUsageLogsQueryDto } from "./dto/list-ai-usage-logs-query.dto";
@@ -93,7 +94,8 @@ export class AiService {
 
   constructor(
     private readonly prismaService: PrismaService,
-    private readonly aiProviderRegistryService: AiProviderRegistryService
+    private readonly aiProviderRegistryService: AiProviderRegistryService,
+    private readonly dataEncryptionService: DataEncryptionService
   ) {}
 
   async listBindings(userId: string): Promise<ListAiBindingsResponse> {
@@ -119,8 +121,8 @@ export class AiService {
       publicPool: publicPool
         ? {
             enabled: publicPool.enabled,
-            providerName: publicPool.providerName,
-            model: publicPool.model,
+            providerName: this.readDecryptedString(publicPool.providerName),
+            model: this.readDecryptedString(publicPool.model),
             hasApiKey: Boolean(publicPool.encryptedApiKey)
           }
         : null
@@ -191,12 +193,12 @@ export class AiService {
           data: {
             userId,
             channel: dto.channel,
-            providerName: this.normalizeProviderName(dto.providerName),
-            model: this.normalizeOptionalString(dto.model),
-            configId: this.normalizeOptionalString(dto.configId),
-            configName: this.normalizeOptionalString(dto.configName),
-            endpoint: this.normalizeOptionalString(dto.endpoint),
-            encryptedApiKey: this.normalizeOptionalString(dto.apiKey),
+            providerName: this.encryptRequiredString(this.normalizeProviderName(dto.providerName)),
+            model: this.encryptOptionalString(dto.model),
+            configId: this.encryptOptionalString(dto.configId),
+            configName: this.encryptOptionalString(dto.configName),
+            endpoint: this.encryptOptionalString(dto.endpoint),
+            encryptedApiKey: this.encryptOptionalString(dto.apiKey),
             isEnabled: dto.isEnabled ?? true
           }
         });
@@ -204,19 +206,19 @@ export class AiService {
 
       const updateData: Prisma.AiProviderBindingUpdateInput = {
         channel: dto.channel,
-        providerName: this.normalizeProviderName(dto.providerName),
-        model: this.normalizeOptionalString(dto.model),
-        configId: this.normalizeOptionalString(dto.configId),
-        configName: this.normalizeOptionalString(dto.configName),
+        providerName: this.encryptRequiredString(this.normalizeProviderName(dto.providerName)),
+        model: this.encryptOptionalString(dto.model),
+        configId: this.encryptOptionalString(dto.configId),
+        configName: this.encryptOptionalString(dto.configName),
         isEnabled: dto.isEnabled ?? existingBinding.isEnabled
       };
 
       if (dto.endpoint !== undefined) {
-        updateData.endpoint = this.normalizeOptionalString(dto.endpoint);
+        updateData.endpoint = this.encryptOptionalString(dto.endpoint);
       }
 
       if (dto.apiKey !== undefined) {
-        updateData.encryptedApiKey = this.normalizeOptionalString(dto.apiKey);
+        updateData.encryptedApiKey = this.encryptOptionalString(dto.apiKey);
       }
 
       return tx.aiProviderBinding.update({
@@ -398,12 +400,12 @@ export class AiService {
       channel: binding.channel,
       source: "binding",
       sourceId: binding.id,
-      providerName: binding.providerName,
-      model: binding.model,
-      configId: binding.configId,
-      configName: binding.configName,
-      endpoint: binding.endpoint,
-      apiKey: binding.encryptedApiKey
+      providerName: this.readDecryptedString(binding.providerName) ?? "",
+      model: this.readDecryptedString(binding.model),
+      configId: this.readDecryptedString(binding.configId),
+      configName: this.readDecryptedString(binding.configName),
+      endpoint: this.readDecryptedString(binding.endpoint),
+      apiKey: this.readDecryptedString(binding.encryptedApiKey)
     };
   }
 
@@ -412,27 +414,34 @@ export class AiService {
       channel: AiChannel.PUBLIC_POOL,
       source: "public_pool",
       sourceId: publicPool.id,
-      providerName: publicPool.providerName ?? "public-pool",
-      model: publicPool.model,
+      providerName: this.readDecryptedString(publicPool.providerName) ?? "public-pool",
+      model: this.readDecryptedString(publicPool.model),
       configId: null,
       configName: null,
-      endpoint: publicPool.endpoint,
-      apiKey: publicPool.encryptedApiKey
+      endpoint: this.readDecryptedString(publicPool.endpoint),
+      apiKey: this.readDecryptedString(publicPool.encryptedApiKey)
     };
   }
 
   private serializeBinding(binding: AiProviderBinding): AiBindingSummary {
+    const decryptedProviderName = this.readDecryptedString(binding.providerName) ?? "";
+    const decryptedModel = this.readDecryptedString(binding.model);
+    const decryptedConfigId = this.readDecryptedString(binding.configId);
+    const decryptedConfigName = this.readDecryptedString(binding.configName);
+    const decryptedEndpoint = this.readDecryptedString(binding.endpoint);
+    const decryptedApiKey = this.readDecryptedString(binding.encryptedApiKey);
+
     return {
       id: binding.id,
       channel: binding.channel,
-      providerName: binding.providerName,
-      model: binding.model,
-      configId: binding.configId,
-      configName: binding.configName,
-      endpoint: binding.endpoint,
+      providerName: decryptedProviderName,
+      model: decryptedModel,
+      configId: decryptedConfigId,
+      configName: decryptedConfigName,
+      endpoint: decryptedEndpoint,
       isEnabled: binding.isEnabled,
       hasApiKey: Boolean(binding.encryptedApiKey),
-      maskedApiKey: this.maskSecret(binding.encryptedApiKey),
+      maskedApiKey: this.maskSecret(decryptedApiKey),
       updatedAt: binding.updatedAt.toISOString()
     };
   }
@@ -523,14 +532,16 @@ export class AiService {
 
     const visibleTasks = sortedTasks.slice(0, this.maxContextTasks);
     const lines = visibleTasks.map((task, index) => {
+      const taskTitle = this.readDecryptedString(task.title) ?? "未命名任务";
+      const contentText = this.readDecryptedString(task.contentText);
       const parts = [
-        `${index + 1}. ${task.title}`,
+        `${index + 1}. ${taskTitle}`,
         `优先级：${this.getPriorityLabel(task.priority)}`,
         `状态：${this.getStatusLabel(task.status)}`,
         `DDL：${task.ddl ? task.ddl.toISOString() : "未设置"}`
       ];
 
-      const contentSnippet = this.getContentSnippet(task.contentText);
+      const contentSnippet = this.getContentSnippet(contentText);
       if (contentSnippet) {
         parts.push(`内容摘要：${contentSnippet}`);
       }
@@ -590,6 +601,25 @@ export class AiService {
 
   private normalizeProviderName(value: string | undefined): string {
     return this.normalizeOptionalString(value) ?? "";
+  }
+
+  private encryptOptionalString(value: string | undefined): string | null | undefined {
+    const normalizedValue = this.normalizeOptionalString(value);
+    return this.dataEncryptionService.encryptString(normalizedValue);
+  }
+
+  private encryptRequiredString(value: string): string {
+    const encryptedValue = this.dataEncryptionService.encryptString(value);
+    if (!encryptedValue) {
+      throw new BadRequestException("敏感配置加密失败");
+    }
+
+    return encryptedValue;
+  }
+
+  private readDecryptedString(value: string | null): string | null {
+    const decryptedValue = this.dataEncryptionService.decryptString(value);
+    return typeof decryptedValue === "string" ? decryptedValue : null;
   }
 
   private validateBindingInput(dto: UpsertAiProviderBindingDto): void {

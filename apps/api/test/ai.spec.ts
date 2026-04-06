@@ -1,5 +1,6 @@
 ﻿import request from "supertest";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import {
   AiChannel,
@@ -19,6 +20,7 @@ import {
   AiRouteFailureError
 } from "../src/ai/ai.types";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { DataEncryptionService } from "../src/security/data-encryption.service";
 
 type AiUsageLogRecord = {
   id: string;
@@ -297,6 +299,10 @@ class InMemoryAiPrismaService {
     return [...this.usageLogs];
   }
 
+  getBindings(): AiProviderBinding[] {
+    return [...this.bindings];
+  }
+
   seedTask(task: AiTaskRecord): void {
     this.tasks.push(task);
   }
@@ -401,9 +407,17 @@ describe("AiController (integration)", () => {
       controllers: [AiController],
       providers: [
         AiService,
+        DataEncryptionService,
         {
           provide: PrismaService,
           useValue: prismaService
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string) =>
+              key === "DATA_ENCRYPTION_SECRET" ? "test-data-encryption-secret" : undefined
+          }
         },
         {
           provide: AiProviderRegistryService,
@@ -466,6 +480,11 @@ describe("AiController (integration)", () => {
       maskedApiKey: "abk_***34",
       isEnabled: true
     });
+
+    const storedBinding = prismaService.getBindings()[0];
+    expect(storedBinding?.providerName).not.toBe("astrbot-main");
+    expect(storedBinding?.endpoint).not.toBe("http://127.0.0.1:6185");
+    expect(storedBinding?.encryptedApiKey).not.toBe("abk_secret_1234");
   });
 
   it("should hide public pool endpoint from user bindings response", async () => {
