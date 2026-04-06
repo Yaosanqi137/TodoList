@@ -70,6 +70,16 @@ type AiUsageLogSummary = {
   createdAt: string;
 };
 
+type AiContextTaskItem = {
+  id: string;
+  title: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  ddl: Date | null;
+  contentText: string | null;
+  updatedAt: Date;
+};
+
 export type ListAiUsageLogsResponse = {
   items: AiUsageLogSummary[];
   page: number;
@@ -235,7 +245,7 @@ export class AiService {
   async chat(userId: string, dto: AiChatDto): Promise<AiChatResponse> {
     const attempts: AiRouteAttempt[] = [];
     const plan = await this.buildRoutePlan(userId, dto.channel ?? null);
-    const promptMessage = await this.buildPromptMessage(userId, dto.message);
+    const promptMessage = await this.buildPromptMessage(userId, dto.message, dto.localTasks ?? []);
 
     for (const entry of plan) {
       if (entry.kind === "skip") {
@@ -476,22 +486,29 @@ export class AiService {
     };
   }
 
-  private async buildPromptMessage(userId: string, userMessage: string): Promise<string> {
-    const taskSummary = await this.buildTaskContextSummary(userId);
+  private async buildPromptMessage(
+    userId: string,
+    userMessage: string,
+    localTasks: NonNullable<AiChatDto["localTasks"]>
+  ): Promise<string> {
+    const taskSummary = await this.buildTaskContextSummary(userId, localTasks);
     if (!taskSummary) {
       return userMessage;
     }
 
     return [
-      "你是 TodoList 的 AI 助手，请优先结合用户当前未完成任务给出安排建议。",
+      "你是 TodoList 的 AI 助手，需要结合用户当前待办提供任务统筹建议。",
       "以下是系统整理的未完成任务摘要：",
       taskSummary,
-      "如果用户的问题与任务无关，也可以正常回答；如果相关，请优先考虑优先级、截止时间与执行顺序。",
+      "请优先根据这些任务的紧急度、截止时间和执行顺序回答，并给出明确可执行的建议。",
       `用户当前问题：${userMessage}`
     ].join("\n\n");
   }
 
-  private async buildTaskContextSummary(userId: string): Promise<string | null> {
+  private async buildTaskContextSummary(
+    userId: string,
+    localTasks: NonNullable<AiChatDto["localTasks"]>
+  ): Promise<string | null> {
     const tasks = await this.prismaService.task.findMany({
       where: {
         userId,
@@ -500,6 +517,7 @@ export class AiService {
         }
       },
       select: {
+        id: true,
         title: true,
         priority: true,
         status: true,
@@ -510,11 +528,93 @@ export class AiService {
       take: 20
     });
 
-    if (tasks.length === 0) {
+    const sortedTasks = this.sortContextTasks(this.mergeContextTasks(tasks, localTasks));
+    if (sortedTasks.length === 0) {
       return null;
     }
 
-    const sortedTasks = [...tasks].sort((left, right) => {
+    const visibleTasks = sortedTasks.slice(0, this.maxContextTasks);
+    const lines = visibleTasks.map((task, index) => {
+      const parts = [
+        `${index + 1}. ${task.title}`,
+        `优先级：${this.getPriorityLabel(task.priority)}`,
+        `状态：${this.getStatusLabel(task.status)}`,
+        `DDL：${task.ddl ? task.ddl.toISOString() : "未设置"}`
+      ];
+
+      const contentSnippet = this.getContentSnippet(task.contentText);
+      if (contentSnippet) {
+        parts.push(`内容摘要：${contentSnippet}`);
+      }
+
+      return parts.join(" | ");
+    });
+
+    const omittedCount = sortedTasks.length - visibleTasks.length;
+    if (omittedCount > 0) {
+      lines.push(`另有 ${omittedCount} 条任务已省略。`);
+    }
+
+    return [`共 ${sortedTasks.length} 条未完成任务。`, ...lines].join("\n");
+  }
+
+  private mergeContextTasks(
+    databaseTasks: Array<{
+      id: string;
+      title: string;
+      priority: TaskPriority;
+      status: TaskStatus;
+      ddl: Date | null;
+      contentText: string | null;
+      updatedAt: Date;
+    }>,
+    localTasks: NonNullable<AiChatDto["localTasks"]>
+  ): AiContextTaskItem[] {
+    const taskMap = new Map<string, AiContextTaskItem>();
+
+    for (const task of databaseTasks) {
+      taskMap.set(task.id, {
+        id: task.id,
+        title: this.readDecryptedString(task.title) ?? "未命名任务",
+        priority: task.priority,
+        status: task.status,
+        ddl: task.ddl,
+        contentText: this.readDecryptedString(task.contentText),
+        updatedAt: task.updatedAt
+      });
+    }
+
+    for (const task of localTasks) {
+      if (task.status !== TaskStatus.TODO && task.status !== TaskStatus.IN_PROGRESS) {
+        continue;
+      }
+
+      const currentTask = taskMap.get(task.id);
+      const nextTask: AiContextTaskItem = {
+        id: task.id,
+        title: task.title.trim().length > 0 ? task.title.trim() : "未命名任务",
+        priority: task.priority,
+        status: task.status,
+        ddl: typeof task.ddlAt === "number" ? new Date(task.ddlAt) : null,
+        contentText:
+          typeof task.contentText === "string" && task.contentText.trim().length > 0
+            ? task.contentText
+            : null,
+        updatedAt: new Date(task.updatedAt)
+      };
+
+      if (!currentTask || nextTask.updatedAt.getTime() >= currentTask.updatedAt.getTime()) {
+        taskMap.set(task.id, nextTask);
+      }
+    }
+
+    return [...taskMap.values()].filter(
+      (task) => task.status === TaskStatus.TODO || task.status === TaskStatus.IN_PROGRESS
+    );
+  }
+
+  private sortContextTasks(tasks: AiContextTaskItem[]): AiContextTaskItem[] {
+    return [...tasks].sort((left, right) => {
       const priorityDiff =
         this.getPriorityWeight(right.priority) - this.getPriorityWeight(left.priority);
       if (priorityDiff !== 0) {
@@ -529,32 +629,6 @@ export class AiService {
 
       return right.updatedAt.getTime() - left.updatedAt.getTime();
     });
-
-    const visibleTasks = sortedTasks.slice(0, this.maxContextTasks);
-    const lines = visibleTasks.map((task, index) => {
-      const taskTitle = this.readDecryptedString(task.title) ?? "未命名任务";
-      const contentText = this.readDecryptedString(task.contentText);
-      const parts = [
-        `${index + 1}. ${taskTitle}`,
-        `优先级：${this.getPriorityLabel(task.priority)}`,
-        `状态：${this.getStatusLabel(task.status)}`,
-        `DDL：${task.ddl ? task.ddl.toISOString() : "未设置"}`
-      ];
-
-      const contentSnippet = this.getContentSnippet(contentText);
-      if (contentSnippet) {
-        parts.push(`内容摘要：${contentSnippet}`);
-      }
-
-      return parts.join(" | ");
-    });
-
-    const omittedCount = sortedTasks.length - visibleTasks.length;
-    if (omittedCount > 0) {
-      lines.push(`其余 ${omittedCount} 项未完成任务已省略。`);
-    }
-
-    return [`共 ${sortedTasks.length} 项未完成任务。`, ...lines].join("\n");
   }
 
   private toFailureAttempt(candidate: AiResolvedRouteCandidate, error: unknown): AiRouteAttempt {

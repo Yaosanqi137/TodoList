@@ -38,6 +38,7 @@ type AiUsageLogRecord = {
 };
 
 type AiTaskRecord = {
+  id: string;
   userId: string;
   title: string;
   priority: TaskPriority;
@@ -262,6 +263,7 @@ class InMemoryAiPrismaService {
       );
 
       return filteredTasks.slice(0, args.take ?? filteredTasks.length).map((task) => ({
+        id: task.id,
         title: task.title,
         priority: task.priority,
         status: task.status,
@@ -385,11 +387,12 @@ describe("AiController (integration)", () => {
   let app: INestApplication;
   let prismaService: InMemoryAiPrismaService;
   let astrbotExecutor: StaticExecutor;
+  let openAiExecutor: StaticExecutor;
 
   beforeEach(async () => {
     prismaService = new InMemoryAiPrismaService();
 
-    const openAiExecutor = new StaticExecutor((channel) =>
+    openAiExecutor = new StaticExecutor((channel) =>
       channel === AiChannel.USER_KEY
         ? {
             code: "UPSTREAM_UNREACHABLE",
@@ -727,6 +730,7 @@ describe("AiController (integration)", () => {
       isEnabled: true
     });
     prismaService.seedTask({
+      id: "task_weekly_report",
       userId: "user_1",
       title: "今晚提交周报",
       priority: TaskPriority.URGENT,
@@ -736,6 +740,7 @@ describe("AiController (integration)", () => {
       updatedAt: new Date("2026-04-06T08:00:00.000Z")
     });
     prismaService.seedTask({
+      id: "task_done_item",
       userId: "user_1",
       title: "整理已完成事项",
       priority: TaskPriority.LOW,
@@ -759,6 +764,113 @@ describe("AiController (integration)", () => {
     expect(astrbotExecutor.inputs[0]?.message).toContain("优先级：紧急");
     expect(astrbotExecutor.inputs[0]?.message).not.toContain("整理已完成事项");
     expect(astrbotExecutor.inputs[0]?.message).toContain("用户当前问题：帮我安排今天剩余任务");
+  });
+
+  it("should inject local unfinished tasks into ai prompt when database is empty", async () => {
+    prismaService.seedBinding({
+      id: "binding_user_key_local_context",
+      userId: "user_1",
+      channel: AiChannel.USER_KEY,
+      providerName: "openai",
+      model: "gpt-4o-mini",
+      configId: null,
+      configName: null,
+      encryptedApiKey: "sk-user",
+      endpoint: "https://api.example.com",
+      isDefault: true,
+      isEnabled: true
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/ai/chat")
+      .set("x-user-id", "user_1")
+      .send({
+        message: "结合我的 TodoList 帮我排优先级",
+        channel: AiChannel.USER_KEY,
+        localTasks: [
+          {
+            id: "local_task_1",
+            title: "准备明天答辩材料",
+            priority: TaskPriority.URGENT,
+            status: TaskStatus.IN_PROGRESS,
+            ddlAt: new Date("2026-04-07T13:00:00.000Z").getTime(),
+            contentText: "需要补齐演示文稿和总结页",
+            updatedAt: new Date("2026-04-07T09:00:00.000Z").getTime()
+          }
+        ]
+      })
+      .expect(502);
+
+    expect(response.body.attempts).toEqual([
+      {
+        channel: AiChannel.USER_KEY,
+        providerName: "openai",
+        model: "gpt-4o-mini",
+        status: "failed",
+        reasonCode: "UPSTREAM_UNREACHABLE",
+        reasonMessage: "用户自备 Key 渠道暂时不可用"
+      }
+    ]);
+    expect(openAiExecutor.inputs).toHaveLength(1);
+    expect(openAiExecutor.inputs[0]?.message).toContain("准备明天答辩材料");
+    expect(openAiExecutor.inputs[0]?.message).toContain("优先级：紧急");
+    expect(openAiExecutor.inputs[0]?.message).toContain("内容摘要：需要补齐演示文稿和总结页");
+    expect(openAiExecutor.inputs[0]?.message).toContain(
+      "用户当前问题：结合我的 TodoList 帮我排优先级"
+    );
+    expect(astrbotExecutor.inputs).toHaveLength(0);
+  });
+
+  it("should prefer newer local task snapshot over older database task", async () => {
+    prismaService.seedBinding({
+      id: "binding_astrbot_local_override",
+      userId: "user_1",
+      channel: AiChannel.ASTRBOT,
+      providerName: "",
+      model: null,
+      configId: "default",
+      configName: null,
+      encryptedApiKey: "abk_astrbot",
+      endpoint: "http://127.0.0.1:6185",
+      isDefault: true,
+      isEnabled: true
+    });
+    prismaService.seedTask({
+      id: "task_same_id",
+      userId: "user_1",
+      title: "旧标题",
+      priority: TaskPriority.LOW,
+      status: TaskStatus.TODO,
+      ddl: new Date("2026-04-08T10:00:00.000Z"),
+      contentText: "旧内容",
+      updatedAt: new Date("2026-04-07T08:00:00.000Z")
+    });
+
+    await request(app.getHttpServer())
+      .post("/ai/chat")
+      .set("x-user-id", "user_1")
+      .send({
+        message: "看看我最新要做什么",
+        channel: AiChannel.ASTRBOT,
+        localTasks: [
+          {
+            id: "task_same_id",
+            title: "新标题",
+            priority: TaskPriority.HIGH,
+            status: TaskStatus.IN_PROGRESS,
+            ddlAt: new Date("2026-04-07T15:00:00.000Z").getTime(),
+            contentText: "新内容",
+            updatedAt: new Date("2026-04-07T12:00:00.000Z").getTime()
+          }
+        ]
+      })
+      .expect(201);
+
+    expect(astrbotExecutor.inputs.at(-1)?.message).toContain("新标题");
+    expect(astrbotExecutor.inputs.at(-1)?.message).toContain("优先级：高");
+    expect(astrbotExecutor.inputs.at(-1)?.message).toContain("内容摘要：新内容");
+    expect(astrbotExecutor.inputs.at(-1)?.message).not.toContain("旧标题");
+    expect(astrbotExecutor.inputs.at(-1)?.message).not.toContain("旧内容");
   });
 
   it("should return skipped attempts when no channel is available", async () => {

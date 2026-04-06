@@ -56,6 +56,16 @@ export type WebAiChatResponse = {
   attempts: WebAiRouteAttempt[];
 };
 
+export type WebAiLocalTaskContextItem = {
+  id: string;
+  title: string;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "TODO" | "IN_PROGRESS" | "DONE" | "ARCHIVED";
+  ddlAt: number | null;
+  contentText: string | null;
+  updatedAt: number;
+};
+
 export class WebAiApiError extends Error {
   attempts: WebAiRouteAttempt[] | null;
 
@@ -92,7 +102,7 @@ async function createApiError(response: Response): Promise<WebAiApiError> {
       attempts?: WebAiRouteAttempt[];
     };
     const message = Array.isArray(body.message)
-      ? body.message.join("，")
+      ? body.message.join("；")
       : typeof body.message === "string" && body.message.trim().length > 0
         ? body.message
         : `请求失败（${response.status}）`;
@@ -101,7 +111,6 @@ async function createApiError(response: Response): Promise<WebAiApiError> {
     return new WebAiApiError(`请求失败（${response.status}）`);
   }
 }
-
 export async function listAiBindings(session: WebSession): Promise<WebAiBindingsResponse> {
   const response = await fetch(`${resolveApiBaseUrl()}/ai/bindings`, {
     method: "GET",
@@ -138,6 +147,7 @@ export async function chatWithAi(
     channel: WebAiChannel;
     message: string;
     sessionId?: string;
+    localTasks?: WebAiLocalTaskContextItem[];
   }
 ): Promise<WebAiChatResponse> {
   const response = await fetch(`${resolveApiBaseUrl()}/ai/chat`, {

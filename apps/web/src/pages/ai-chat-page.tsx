@@ -17,6 +17,7 @@ import {
   type WebAiBindingSummary,
   type WebAiBindingsResponse,
   type WebAiChannel,
+  type WebAiLocalTaskContextItem,
   WebAiApiError
 } from "@/services/ai-api";
 import {
@@ -25,6 +26,7 @@ import {
   saveLocalAiChatSession,
   type LocalAiChatMessageRecord
 } from "@/services/local-ai-chat-repo";
+import { listLocalTasksByUser } from "@/services/local-task-repo";
 import type { WebSession } from "@/services/session-storage";
 import { CHANNEL_META, CHANNEL_ORDER } from "@/components/ai/ai-shared";
 
@@ -62,6 +64,23 @@ function appendMessage(
     ...records,
     [channel]: [...records[channel], message]
   };
+}
+
+function buildLocalTaskContext(
+  items: Awaited<ReturnType<typeof listLocalTasksByUser>>
+): WebAiLocalTaskContextItem[] {
+  return items
+    .filter((item) => item.status === "TODO" || item.status === "IN_PROGRESS")
+    .slice(0, 20)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      priority: item.priority,
+      status: item.status,
+      ddlAt: item.ddlAt,
+      contentText: item.contentText,
+      updatedAt: item.updatedAt
+    }));
 }
 
 export function AiChatPage({ session }: AiChatPageProps) {
@@ -224,10 +243,12 @@ export function AiChatPage({ session }: AiChatPageProps) {
     );
 
     try {
+      const localTasks = buildLocalTaskContext(await listLocalTasksByUser(session.user.id));
       const response = await chatWithAi(session, {
         channel,
         message,
-        sessionId: sessionIds[channel]
+        sessionId: sessionIds[channel],
+        localTasks
       });
 
       setSessionIds((current) => ({
