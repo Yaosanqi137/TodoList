@@ -1,11 +1,18 @@
 ﻿import request from "supertest";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
-import { AiChannel, AiProviderBinding, AiPublicPoolConfig } from "../generated/prisma/client";
+import {
+  AiChannel,
+  AiProviderBinding,
+  AiPublicPoolConfig,
+  TaskPriority,
+  TaskStatus
+} from "../generated/prisma/client";
 import { AiController } from "../src/ai/ai.controller";
 import { AiProviderRegistryService } from "../src/ai/ai-provider-registry.service";
 import { AiService } from "../src/ai/ai.service";
 import {
+  AiChatInput,
   AiChannelExecutor,
   AiResolvedRouteCandidate,
   AiRouteFailureError
@@ -25,12 +32,23 @@ type AiUsageLogRecord = {
   errorCode: string | null;
 };
 
+type AiTaskRecord = {
+  userId: string;
+  title: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  ddl: Date | null;
+  contentText: string | null;
+  updatedAt: Date;
+};
+
 class InMemoryAiPrismaService {
   private bindingIdSequence = 1;
   private publicPoolIdSequence = 1;
   private bindings: AiProviderBinding[] = [];
   private publicPools: AiPublicPoolConfig[] = [];
   private usageLogs: AiUsageLogRecord[] = [];
+  private tasks: AiTaskRecord[] = [];
 
   readonly aiProviderBinding = {
     findMany: async (args: {
@@ -185,6 +203,31 @@ class InMemoryAiPrismaService {
     }
   };
 
+  readonly task = {
+    findMany: async (args: {
+      where: {
+        userId: string;
+        status: {
+          in: TaskStatus[];
+        };
+      };
+      take?: number;
+    }) => {
+      const filteredTasks = this.tasks.filter(
+        (task) => task.userId === args.where.userId && args.where.status.in.includes(task.status)
+      );
+
+      return filteredTasks.slice(0, args.take ?? filteredTasks.length).map((task) => ({
+        title: task.title,
+        priority: task.priority,
+        status: task.status,
+        ddl: task.ddl,
+        contentText: task.contentText,
+        updatedAt: task.updatedAt
+      }));
+    }
+  };
+
   async $transaction<T>(callback: (tx: InMemoryAiPrismaService) => Promise<T>): Promise<T> {
     return callback(this);
   }
@@ -211,9 +254,18 @@ class InMemoryAiPrismaService {
   getUsageLogs(): AiUsageLogRecord[] {
     return [...this.usageLogs];
   }
+
+  seedTask(task: AiTaskRecord): void {
+    this.tasks.push(task);
+  }
 }
 
 class StaticExecutor implements AiChannelExecutor {
+  readonly inputs: Array<{
+    candidate: AiResolvedRouteCandidate;
+    message: string;
+  }> = [];
+
   constructor(
     private readonly resolver: (channel: AiChannel) => {
       content?: string;
@@ -222,7 +274,12 @@ class StaticExecutor implements AiChannelExecutor {
     }
   ) {}
 
-  async execute(candidate: AiResolvedRouteCandidate) {
+  async execute(candidate: AiResolvedRouteCandidate, input: AiChatInput) {
+    this.inputs.push({
+      candidate,
+      message: input.message
+    });
+
     const result = this.resolver(candidate.channel);
     if (result.code) {
       throw new AiRouteFailureError(
@@ -252,6 +309,7 @@ class StaticExecutor implements AiChannelExecutor {
 describe("AiController (integration)", () => {
   let app: INestApplication;
   let prismaService: InMemoryAiPrismaService;
+  let astrbotExecutor: StaticExecutor;
 
   beforeEach(async () => {
     prismaService = new InMemoryAiPrismaService();
@@ -266,7 +324,7 @@ describe("AiController (integration)", () => {
             content: "公共 AI 已接管"
           }
     );
-    const astrbotExecutor = new StaticExecutor(() => ({
+    astrbotExecutor = new StaticExecutor(() => ({
       content: "AstrBot 已接管"
     }));
 
@@ -446,6 +504,55 @@ describe("AiController (integration)", () => {
       configId: "default",
       configName: null
     });
+  });
+
+  it("should inject unfinished task summary into ai prompt", async () => {
+    prismaService.seedBinding({
+      id: "binding_astrbot_context",
+      userId: "user_1",
+      channel: AiChannel.ASTRBOT,
+      providerName: "",
+      model: null,
+      configId: "default",
+      configName: null,
+      encryptedApiKey: "abk_astrbot",
+      endpoint: "http://127.0.0.1:6185",
+      isDefault: true,
+      isEnabled: true
+    });
+    prismaService.seedTask({
+      userId: "user_1",
+      title: "今晚提交周报",
+      priority: TaskPriority.URGENT,
+      status: TaskStatus.IN_PROGRESS,
+      ddl: new Date("2026-04-06T12:00:00.000Z"),
+      contentText: "需要汇总 AI 路由、AstrBot 接入和同步模块进度",
+      updatedAt: new Date("2026-04-06T08:00:00.000Z")
+    });
+    prismaService.seedTask({
+      userId: "user_1",
+      title: "整理已完成事项",
+      priority: TaskPriority.LOW,
+      status: TaskStatus.DONE,
+      ddl: null,
+      contentText: "这条任务不应该出现在上下文里",
+      updatedAt: new Date("2026-04-06T07:00:00.000Z")
+    });
+
+    await request(app.getHttpServer())
+      .post("/ai/chat")
+      .set("x-user-id", "user_1")
+      .send({
+        message: "帮我安排今天剩余任务"
+      })
+      .expect(201);
+
+    expect(astrbotExecutor.inputs).toHaveLength(1);
+    expect(astrbotExecutor.inputs[0]?.message).toContain("以下是系统整理的未完成任务摘要");
+    expect(astrbotExecutor.inputs[0]?.message).toContain("今晚提交周报");
+    expect(astrbotExecutor.inputs[0]?.message).toContain("优先级：紧急");
+    expect(astrbotExecutor.inputs[0]?.message).not.toContain("整理已完成事项");
+    expect(astrbotExecutor.inputs[0]?.message).toContain("用户当前问题：帮我安排今天剩余任务");
   });
 
   it("should return skipped attempts when no channel is available", async () => {

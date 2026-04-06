@@ -9,7 +9,9 @@ import {
   AiChannel,
   AiProviderBinding,
   AiPublicPoolConfig,
-  Prisma
+  Prisma,
+  TaskPriority,
+  TaskStatus
 } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AiProviderRegistryService } from "./ai-provider-registry.service";
@@ -71,6 +73,8 @@ export type AiChatResponse = {
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
+  private readonly maxContextTasks = 6;
+  private readonly maxContextContentLength = 80;
 
   constructor(
     private readonly prismaService: PrismaService,
@@ -195,6 +199,7 @@ export class AiService {
   async chat(userId: string, dto: AiChatDto): Promise<AiChatResponse> {
     const attempts: AiRouteAttempt[] = [];
     const plan = await this.buildRoutePlan(userId, dto.bindingId ?? null);
+    const promptMessage = await this.buildPromptMessage(userId, dto.message);
 
     for (const entry of plan) {
       if (entry.kind === "skip") {
@@ -208,7 +213,7 @@ export class AiService {
       try {
         const result = await executor.execute(entry.candidate, {
           userId,
-          message: dto.message,
+          message: promptMessage,
           sessionId: dto.sessionId ?? null
         });
         const latencyMs = Date.now() - startedAt;
@@ -416,6 +421,85 @@ export class AiService {
     };
   }
 
+  private async buildPromptMessage(userId: string, userMessage: string): Promise<string> {
+    const taskSummary = await this.buildTaskContextSummary(userId);
+    if (!taskSummary) {
+      return userMessage;
+    }
+
+    return [
+      "你是 TodoList 的 AI 助手，请优先结合用户当前未完成任务给出安排建议。",
+      "以下是系统整理的未完成任务摘要：",
+      taskSummary,
+      "如果用户的问题与任务无关，也可以正常回答；如果相关，请优先考虑优先级、截止时间与执行顺序。",
+      `用户当前问题：${userMessage}`
+    ].join("\n\n");
+  }
+
+  private async buildTaskContextSummary(userId: string): Promise<string | null> {
+    const tasks = await this.prismaService.task.findMany({
+      where: {
+        userId,
+        status: {
+          in: [TaskStatus.TODO, TaskStatus.IN_PROGRESS]
+        }
+      },
+      select: {
+        title: true,
+        priority: true,
+        status: true,
+        ddl: true,
+        contentText: true,
+        updatedAt: true
+      },
+      take: 20
+    });
+
+    if (tasks.length === 0) {
+      return null;
+    }
+
+    const sortedTasks = [...tasks].sort((left, right) => {
+      const priorityDiff =
+        this.getPriorityWeight(right.priority) - this.getPriorityWeight(left.priority);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+
+      const leftDdl = left.ddl?.getTime() ?? Number.POSITIVE_INFINITY;
+      const rightDdl = right.ddl?.getTime() ?? Number.POSITIVE_INFINITY;
+      if (leftDdl !== rightDdl) {
+        return leftDdl - rightDdl;
+      }
+
+      return right.updatedAt.getTime() - left.updatedAt.getTime();
+    });
+
+    const visibleTasks = sortedTasks.slice(0, this.maxContextTasks);
+    const lines = visibleTasks.map((task, index) => {
+      const parts = [
+        `${index + 1}. ${task.title}`,
+        `优先级：${this.getPriorityLabel(task.priority)}`,
+        `状态：${this.getStatusLabel(task.status)}`,
+        `DDL：${task.ddl ? task.ddl.toISOString() : "未设置"}`
+      ];
+
+      const contentSnippet = this.getContentSnippet(task.contentText);
+      if (contentSnippet) {
+        parts.push(`内容摘要：${contentSnippet}`);
+      }
+
+      return parts.join(" | ");
+    });
+
+    const omittedCount = sortedTasks.length - visibleTasks.length;
+    if (omittedCount > 0) {
+      lines.push(`其余 ${omittedCount} 项未完成任务已省略。`);
+    }
+
+    return [`共 ${sortedTasks.length} 项未完成任务。`, ...lines].join("\n");
+  }
+
   private toFailureAttempt(candidate: AiResolvedRouteCandidate, error: unknown): AiRouteAttempt {
     if (error instanceof AiRouteFailureError) {
       return {
@@ -491,6 +575,68 @@ export class AiService {
     }
 
     return `${secret.slice(0, 4)}***${secret.slice(-2)}`;
+  }
+
+  private getPriorityWeight(priority: TaskPriority): number {
+    switch (priority) {
+      case TaskPriority.URGENT:
+        return 4;
+      case TaskPriority.HIGH:
+        return 3;
+      case TaskPriority.MEDIUM:
+        return 2;
+      case TaskPriority.LOW:
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  private getPriorityLabel(priority: TaskPriority): string {
+    switch (priority) {
+      case TaskPriority.URGENT:
+        return "紧急";
+      case TaskPriority.HIGH:
+        return "高";
+      case TaskPriority.MEDIUM:
+        return "中";
+      case TaskPriority.LOW:
+        return "低";
+      default:
+        return String(priority);
+    }
+  }
+
+  private getStatusLabel(status: TaskStatus): string {
+    switch (status) {
+      case TaskStatus.TODO:
+        return "待开始";
+      case TaskStatus.IN_PROGRESS:
+        return "进行中";
+      case TaskStatus.DONE:
+        return "已完成";
+      case TaskStatus.ARCHIVED:
+        return "已归档";
+      default:
+        return String(status);
+    }
+  }
+
+  private getContentSnippet(contentText: string | null): string | null {
+    if (!contentText) {
+      return null;
+    }
+
+    const normalizedContent = contentText.replace(/\s+/g, " ").trim();
+    if (normalizedContent.length === 0) {
+      return null;
+    }
+
+    if (normalizedContent.length <= this.maxContextContentLength) {
+      return normalizedContent;
+    }
+
+    return `${normalizedContent.slice(0, this.maxContextContentLength)}...`;
   }
 
   private async recordUsageLog(input: {
