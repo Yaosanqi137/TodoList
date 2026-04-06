@@ -17,8 +17,11 @@ import {
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { AiChatPage } from "@/pages/ai-chat-page";
 import { EmailLoginPage } from "@/pages/email-login-page";
 import { OAuthCallbackPage } from "@/pages/oauth-callback-page";
+import { PlaceholderPage } from "@/pages/placeholder-page";
+import { SettingsPage } from "@/pages/settings-page";
 import { TodoShellPage } from "@/pages/todo-shell-page";
 import { revokeRefreshToken, type EmailLoginResult } from "@/services/auth-api";
 import {
@@ -38,17 +41,18 @@ type SidebarItem = {
   key: string;
   label: string;
   icon: LucideIcon;
+  path: string;
 };
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
-  { key: "dashboard", label: "概览面板", icon: LayoutDashboard },
-  { key: "todo", label: "待办事项", icon: ListTodo },
-  { key: "ai", label: "AI 建议", icon: Sparkles },
-  { key: "notice", label: "提醒中心", icon: Bell },
-  { key: "settings", label: "系统设置", icon: Settings }
+  { key: "dashboard", label: "概览面板", icon: LayoutDashboard, path: "/dashboard" },
+  { key: "todo", label: "待办事项", icon: ListTodo, path: "/todo" },
+  { key: "ai", label: "AI 助手", icon: Sparkles, path: "/ai" },
+  { key: "notice", label: "提醒中心", icon: Bell, path: "/notice" },
+  { key: "settings", label: "系统设置", icon: Settings, path: "/settings" }
 ];
 
-const READY_SIDEBAR_KEYS = new Set(["todo", "ai"]);
+const READY_SIDEBAR_KEYS = new Set(["todo", "ai", "settings"]);
 
 function toWebSession(payload: EmailLoginResult): WebSession {
   return {
@@ -106,7 +110,7 @@ function App() {
     saveSession(nextSession);
     setSession(nextSession);
     setMobileSidebarOpen(false);
-    navigate("/", { replace: true });
+    navigate("/todo", { replace: true });
   }
 
   function handleBootstrapSession(nextSession: WebSession): void {
@@ -138,14 +142,21 @@ function App() {
           <nav className="space-y-1">
             {SIDEBAR_ITEMS.map((item) => {
               const ItemIcon = item.icon;
+              const isActive =
+                location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
               return (
                 <button
                   key={item.key}
                   type="button"
                   className={cn(
                     "group flex w-full items-center rounded-xl border border-transparent px-3 py-2.5 text-left transition-colors",
-                    "gap-3 hover:border-primary/25 hover:bg-primary/10"
+                    "gap-3 hover:border-primary/25 hover:bg-primary/10",
+                    isActive ? "border-primary/25 bg-primary/10" : null
                   )}
+                  onClick={() => {
+                    navigate(item.path);
+                    setMobileSidebarOpen(false);
+                  }}
                 >
                   <ItemIcon className="size-5 shrink-0 text-primary" />
                   {collapsed ? null : (
@@ -212,7 +223,10 @@ function App() {
                 path="/auth/callback/:provider"
                 element={<OAuthCallbackPage onBootstrapSession={handleBootstrapSession} />}
               />
-              <Route path="*" element={<Navigate to={session ? "/" : "/login/email"} replace />} />
+              <Route
+                path="*"
+                element={<Navigate to={session ? "/todo" : "/login/email"} replace />}
+              />
             </Routes>
           </div>
         </main>
@@ -298,6 +312,23 @@ function App() {
               <Routes>
                 <Route
                   path="/"
+                  element={<Navigate to={session ? "/todo" : "/login/email"} replace />}
+                />
+                <Route
+                  path="/dashboard"
+                  element={
+                    session ? (
+                      <PlaceholderPage
+                        title="概览面板正在整理"
+                        description="这里后续会放任务统计、今日重点、AI 使用概况和提醒概览。当前先把导航和页面结构拆清楚。"
+                      />
+                    ) : (
+                      <Navigate to="/login/email" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/todo"
                   element={
                     session ? (
                       <TodoShellPage session={session} />
@@ -307,8 +338,41 @@ function App() {
                   }
                 />
                 <Route
+                  path="/ai"
+                  element={
+                    session ? (
+                      <AiChatPage session={session} />
+                    ) : (
+                      <Navigate to="/login/email" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/notice"
+                  element={
+                    session ? (
+                      <PlaceholderPage
+                        title="提醒中心即将接入"
+                        description="邮件提醒、Web Push 推送、任务到期前通知都会独立收敛到这里，而不是继续堆在任务页里。"
+                      />
+                    ) : (
+                      <Navigate to="/login/email" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    session ? (
+                      <SettingsPage session={session} />
+                    ) : (
+                      <Navigate to="/login/email" replace />
+                    )
+                  }
+                />
+                <Route
                   path="*"
-                  element={<Navigate to={session ? "/" : "/login/email"} replace />}
+                  element={<Navigate to={session ? "/todo" : "/login/email"} replace />}
                 />
               </Routes>
             </div>
