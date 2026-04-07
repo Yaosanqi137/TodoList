@@ -2,8 +2,7 @@ import { localDb, type LocalAiChatSessionRecord } from "@/services/local-db";
 import type { WebAiChannel } from "@/services/ai-api";
 import {
   decryptAiChatSessionRecord,
-  encryptAiChatSessionRecord,
-  shouldEncryptAiChatSessionRecord
+  encryptAiChatSessionRecord
 } from "@/services/local-sensitive-codec";
 
 export type LocalAiChatMessageRecord = {
@@ -69,16 +68,6 @@ export async function listLocalAiChatSessions(
   userId: string
 ): Promise<LocalAiChatSessionSnapshot[]> {
   const records = await localDb.aiChatSessions.where("userId").equals(userId).toArray();
-  const encryptedRecords = await Promise.all(
-    records
-      .filter(shouldEncryptAiChatSessionRecord)
-      .map((record) => encryptAiChatSessionRecord(record))
-  );
-
-  if (encryptedRecords.length > 0) {
-    await localDb.aiChatSessions.bulkPut(encryptedRecords);
-  }
-
   const decryptedRecords = await Promise.all(
     records.map((record) => decryptAiChatSessionRecord(record))
   );

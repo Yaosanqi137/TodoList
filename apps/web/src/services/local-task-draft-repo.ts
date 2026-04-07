@@ -1,9 +1,5 @@
 import { localDb, type LocalTaskDraftRecord } from "@/services/local-db";
-import {
-  decryptTaskDraftRecord,
-  encryptTaskDraftRecord,
-  shouldEncryptTaskDraft
-} from "@/services/local-sensitive-codec";
+import { decryptTaskDraftRecord, encryptTaskDraftRecord } from "@/services/local-sensitive-codec";
 
 export type SaveLocalTaskDraftInput = {
   taskId: string;
@@ -20,10 +16,6 @@ export async function getLocalTaskDraft(taskId: string): Promise<LocalTaskDraftR
   const draft = await localDb.taskDrafts.get(taskId);
   if (!draft) {
     return undefined;
-  }
-
-  if (shouldEncryptTaskDraft(draft)) {
-    await localDb.taskDrafts.put(await encryptTaskDraftRecord(draft));
   }
 
   return decryptTaskDraftRecord(draft);

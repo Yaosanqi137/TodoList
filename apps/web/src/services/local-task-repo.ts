@@ -9,8 +9,7 @@
 import {
   decryptTaskRecord,
   encryptOpLogRecord,
-  encryptTaskRecord,
-  shouldEncryptTaskRecord
+  encryptTaskRecord
 } from "@/services/local-sensitive-codec";
 
 const DEVICE_ID_STORAGE_KEY = "todolist.web.device-id";
@@ -89,14 +88,6 @@ function createSyncTaskPayload(payload: SyncTaskPayload): string {
 
 export async function listLocalTasksByUser(userId: string): Promise<LocalTaskRecord[]> {
   const tasks = await localDb.tasks.where("userId").equals(userId).toArray();
-  const encryptedTasks = await Promise.all(
-    tasks.filter(shouldEncryptTaskRecord).map((task) => encryptTaskRecord(task))
-  );
-
-  if (encryptedTasks.length > 0) {
-    await localDb.tasks.bulkPut(encryptedTasks);
-  }
-
   const decryptedTasks = await Promise.all(tasks.map((task) => decryptTaskRecord(task)));
   return decryptedTasks
     .filter((task) => task.deletedAt === null)
@@ -107,10 +98,6 @@ export async function getLocalTaskById(id: string): Promise<LocalTaskRecord | un
   const task = await localDb.tasks.get(id);
   if (!task || task.deletedAt !== null) {
     return undefined;
-  }
-
-  if (shouldEncryptTaskRecord(task)) {
-    await localDb.tasks.put(await encryptTaskRecord(task));
   }
 
   return decryptTaskRecord(task);

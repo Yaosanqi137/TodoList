@@ -7,10 +7,7 @@
 import {
   decryptOpLogRecord,
   decryptSyncInboxRecord,
-  encryptOpLogRecord,
-  encryptSyncInboxRecord,
-  shouldEncryptOpLogRecord,
-  shouldEncryptSyncInboxRecord
+  encryptSyncInboxRecord
 } from "@/services/local-sensitive-codec";
 import type { SyncPullItem } from "@/services/sync-api";
 
@@ -18,14 +15,6 @@ export const MAX_SYNC_RETRY_COUNT = 5;
 
 export async function listPendingSyncOperations(limit = 20): Promise<LocalOpLogRecord[]> {
   const records = await localDb.opLogs.orderBy("clientTs").toArray();
-  const encryptedRecords = await Promise.all(
-    records.filter(shouldEncryptOpLogRecord).map((record) => encryptOpLogRecord(record))
-  );
-
-  if (encryptedRecords.length > 0) {
-    await localDb.opLogs.bulkPut(encryptedRecords);
-  }
-
   const pendingRecords = records
     .filter((record) => record.syncedAt === null && record.retryCount < MAX_SYNC_RETRY_COUNT)
     .slice(0, limit);
@@ -144,14 +133,6 @@ export async function listPendingRemoteOperations(
   limit = 100
 ): Promise<LocalSyncInboxRecord[]> {
   const records = await localDb.syncInbox.where("userId").equals(userId).toArray();
-  const encryptedRecords = await Promise.all(
-    records.filter(shouldEncryptSyncInboxRecord).map((record) => encryptSyncInboxRecord(record))
-  );
-
-  if (encryptedRecords.length > 0) {
-    await localDb.syncInbox.bulkPut(encryptedRecords);
-  }
-
   const pendingRecords = records
     .filter((record) => record.appliedAt === null)
     .sort((left, right) => {
