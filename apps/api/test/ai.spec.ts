@@ -682,6 +682,103 @@ describe("AiController (integration)", () => {
     });
   });
 
+  it("should test binding with stored secret when api key is omitted", async () => {
+    prismaService.seedBinding({
+      id: "binding_user_key_test_existing_secret",
+      userId: "user_1",
+      channel: AiChannel.USER_KEY,
+      providerName: "airouter",
+      model: "gpt-4.1",
+      configId: null,
+      configName: null,
+      encryptedApiKey: "sk-existing",
+      endpoint: "https://api.example.com",
+      isDefault: false,
+      isEnabled: true
+    });
+
+    const executeSpy = jest.spyOn(openAiExecutor, "execute").mockResolvedValue({
+      channel: AiChannel.USER_KEY,
+      providerName: "airouter",
+      model: "gpt-4.1",
+      content: "连接成功",
+      sessionId: "session_binding_test",
+      usage: {
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2
+      },
+      raw: null
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/ai/bindings/test")
+      .set("x-user-id", "user_1")
+      .send({
+        channel: AiChannel.USER_KEY,
+        providerName: "airouter",
+        model: "gpt-4.1",
+        endpoint: "https://api.example.com"
+      })
+      .expect(201);
+
+    expect(response.body).toEqual({
+      success: true,
+      channel: AiChannel.USER_KEY,
+      providerName: "airouter",
+      model: "gpt-4.1",
+      contentPreview: "连接成功"
+    });
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: AiChannel.USER_KEY,
+        providerName: "airouter",
+        model: "gpt-4.1",
+        endpoint: "https://api.example.com",
+        apiKey: "sk-existing"
+      }),
+      expect.objectContaining({
+        userId: "user_1"
+      })
+    );
+  });
+
+  it("should return structured failure result when binding test fails", async () => {
+    prismaService.seedBinding({
+      id: "binding_user_key_test_failure",
+      userId: "user_1",
+      channel: AiChannel.USER_KEY,
+      providerName: "airouter",
+      model: "gpt-5.4",
+      configId: null,
+      configName: null,
+      encryptedApiKey: "sk-existing",
+      endpoint: "https://api.example.com",
+      isDefault: false,
+      isEnabled: true
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/ai/bindings/test")
+      .set("x-user-id", "user_1")
+      .send({
+        channel: AiChannel.USER_KEY,
+        providerName: "airouter",
+        model: "gpt-5.4",
+        endpoint: "https://api.example.com"
+      })
+      .expect(201);
+
+    expect(response.body).toEqual({
+      success: false,
+      channel: AiChannel.USER_KEY,
+      providerName: "airouter",
+      model: "gpt-5.4",
+      code: "UPSTREAM_UNREACHABLE",
+      message: "用户自备 Key 渠道暂时不可用"
+    });
+  });
+
   it("should use selected channel without automatic fallback", async () => {
     prismaService.seedBinding({
       id: "binding_user_key_selected",

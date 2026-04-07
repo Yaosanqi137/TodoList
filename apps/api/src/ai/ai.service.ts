@@ -104,6 +104,23 @@ export type AiChatResponse = {
   attempts: AiRouteAttempt[];
 };
 
+export type TestAiBindingResponse =
+  | {
+      success: true;
+      channel: AiChannel;
+      providerName: string;
+      model: string | null;
+      contentPreview: string;
+    }
+  | {
+      success: false;
+      channel: AiChannel;
+      providerName: string;
+      model: string | null;
+      code: string;
+      message: string;
+    };
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -249,6 +266,65 @@ export class AiService {
     });
 
     return this.serializeBinding(result);
+  }
+
+  async testBinding(
+    userId: string,
+    dto: UpsertAiProviderBindingDto
+  ): Promise<TestAiBindingResponse> {
+    if (dto.channel === AiChannel.PUBLIC_POOL) {
+      throw new BadRequestException("公共 AI 通道不能由用户自行测试");
+    }
+
+    const candidate = await this.buildTestCandidate(userId, dto);
+    const executor = this.aiProviderRegistryService.getExecutor(candidate.channel);
+
+    try {
+      const result = await executor.execute(candidate, {
+        userId,
+        message: "请只回复“连接成功”，不要添加其他内容。",
+        sessionId: null
+      });
+
+      return {
+        success: true,
+        channel: result.channel,
+        providerName: result.providerName,
+        model: result.model,
+        contentPreview: this.limitPreviewText(result.content)
+      };
+    } catch (error) {
+      if (error instanceof AiRouteFailureError) {
+        return {
+          success: false,
+          channel: error.channel,
+          providerName: error.providerName,
+          model: candidate.model,
+          code: error.code,
+          message: error.message
+        };
+      }
+
+      if (error instanceof Error) {
+        return {
+          success: false,
+          channel: candidate.channel,
+          providerName: candidate.providerName,
+          model: candidate.model,
+          code: "UNKNOWN_ERROR",
+          message: error.message
+        };
+      }
+
+      return {
+        success: false,
+        channel: candidate.channel,
+        providerName: candidate.providerName,
+        model: candidate.model,
+        code: "UNKNOWN_ERROR",
+        message: "未知错误"
+      };
+    }
   }
 
   async chat(
@@ -431,6 +507,55 @@ export class AiService {
         updatedAt: "desc"
       }
     });
+  }
+
+  private async buildTestCandidate(
+    userId: string,
+    dto: UpsertAiProviderBindingDto
+  ): Promise<AiResolvedRouteCandidate> {
+    const existingBinding = await this.prismaService.aiProviderBinding.findFirst({
+      where: {
+        userId,
+        channel: dto.channel
+      },
+      orderBy: {
+        updatedAt: "desc"
+      }
+    });
+
+    const mergedDto: UpsertAiProviderBindingDto = {
+      channel: dto.channel,
+      providerName:
+        dto.providerName ?? this.readDecryptedString(existingBinding?.providerName ?? null) ?? "",
+      model: dto.model ?? this.readDecryptedString(existingBinding?.model ?? null) ?? undefined,
+      configId:
+        dto.configId ?? this.readDecryptedString(existingBinding?.configId ?? null) ?? undefined,
+      configName:
+        dto.configName ??
+        this.readDecryptedString(existingBinding?.configName ?? null) ??
+        undefined,
+      endpoint:
+        dto.endpoint ?? this.readDecryptedString(existingBinding?.endpoint ?? null) ?? undefined,
+      apiKey:
+        dto.apiKey ??
+        this.readDecryptedString(existingBinding?.encryptedApiKey ?? null) ??
+        undefined,
+      isEnabled: dto.isEnabled ?? existingBinding?.isEnabled ?? true
+    };
+
+    this.validateBindingInput(mergedDto);
+
+    return {
+      channel: mergedDto.channel,
+      source: existingBinding ? "binding" : "binding",
+      sourceId: existingBinding?.id ?? null,
+      providerName: this.normalizeProviderName(mergedDto.providerName),
+      model: this.normalizeOptionalString(mergedDto.model),
+      configId: this.normalizeOptionalString(mergedDto.configId),
+      configName: this.normalizeOptionalString(mergedDto.configName),
+      endpoint: this.normalizeOptionalString(mergedDto.endpoint),
+      apiKey: this.normalizeOptionalString(mergedDto.apiKey)
+    };
   }
 
   private toBindingCandidate(binding: AiProviderBinding): AiResolvedRouteCandidate {
@@ -753,6 +878,15 @@ export class AiService {
     }
 
     return `${secret.slice(0, 4)}***${secret.slice(-2)}`;
+  }
+
+  private limitPreviewText(content: string): string {
+    const normalizedContent = content.replace(/\s+/g, " ").trim();
+    if (normalizedContent.length <= 60) {
+      return normalizedContent;
+    }
+
+    return `${normalizedContent.slice(0, 60)}...`;
   }
 
   private getPriorityWeight(priority: TaskPriority): number {

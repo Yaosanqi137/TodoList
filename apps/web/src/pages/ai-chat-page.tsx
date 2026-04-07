@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import {
   Bot,
   CircleAlert,
@@ -287,6 +288,15 @@ export function AiChatPage({ session }: AiChatPageProps) {
     }
   }
 
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    void handleSendMessage();
+  }
+
   return (
     <section className="space-y-4">
       <div className="rounded-[2rem] border border-border/70 bg-card/92 p-6 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.55)]">
@@ -484,6 +494,7 @@ export function AiChatPage({ session }: AiChatPageProps) {
             <textarea
               value={draftMessage}
               onChange={(event) => setDraftMessage(event.target.value)}
+              onKeyDown={handleDraftKeyDown}
               placeholder="输入你的问题，例如：结合我当前待办，帮我排一下今天的优先级。"
               className="min-h-[140px] w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm leading-7 outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40"
             />

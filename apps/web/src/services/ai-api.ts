@@ -47,6 +47,23 @@ export type UpsertWebAiBindingInput = {
   isEnabled?: boolean;
 };
 
+export type TestWebAiBindingResponse =
+  | {
+      success: true;
+      channel: Exclude<WebAiChannel, "PUBLIC_POOL">;
+      providerName: string;
+      model: string | null;
+      contentPreview: string;
+    }
+  | {
+      success: false;
+      channel: Exclude<WebAiChannel, "PUBLIC_POOL">;
+      providerName: string;
+      model: string | null;
+      code: string;
+      message: string;
+    };
+
 export type WebAiChatResponse = {
   channel: WebAiChannel;
   providerName: string;
@@ -139,6 +156,23 @@ export async function upsertAiBinding(
   }
 
   return (await response.json()) as WebAiBindingSummary;
+}
+
+export async function testAiBinding(
+  session: WebSession,
+  payload: UpsertWebAiBindingInput
+): Promise<TestWebAiBindingResponse> {
+  const response = await fetch(`${resolveApiBaseUrl()}/ai/bindings/test`, {
+    method: "POST",
+    headers: createHeaders(session),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response);
+  }
+
+  return (await response.json()) as TestWebAiBindingResponse;
 }
 
 export async function chatWithAi(

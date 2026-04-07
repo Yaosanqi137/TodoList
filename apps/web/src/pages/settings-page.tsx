@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   listAiBindings,
+  testAiBinding,
   upsertAiBinding,
   type WebAiBindingSummary,
   type WebAiBindingsResponse,
@@ -27,6 +28,12 @@ type NoticeState = {
   message: string;
 };
 
+type ChannelNoticeState = NoticeState & {
+  detail?: string;
+};
+
+const TODOLIST_VERSION = "0.1.0";
+
 function AiConfigCard({
   channel,
   title,
@@ -36,7 +43,8 @@ function AiConfigCard({
   onChange,
   onSave,
   saving,
-  binding
+  binding,
+  notice
 }: {
   channel: Exclude<WebAiChannel, "PUBLIC_POOL">;
   title: string;
@@ -47,6 +55,7 @@ function AiConfigCard({
   onSave: () => Promise<void>;
   saving: boolean;
   binding: WebAiBindingSummary | null;
+  notice: ChannelNoticeState | null;
 }) {
   return (
     <section className="rounded-[2rem] border border-border/70 bg-card/92 p-5 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.55)]">
@@ -71,6 +80,27 @@ function AiConfigCard({
           {formState.isEnabled ? "已启用" : "已停用"}
         </span>
       </div>
+
+      {notice ? (
+        <div
+          className={cn(
+            "mt-4 rounded-2xl border px-3 py-3 text-sm",
+            notice.tone === "success"
+              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-destructive/20 bg-destructive/10 text-destructive"
+          )}
+        >
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            <div className="min-w-0">
+              <div>{notice.message}</div>
+              {notice.detail ? (
+                <div className="mt-1 text-xs leading-6 opacity-80">{notice.detail}</div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="space-y-1.5">
@@ -200,16 +230,20 @@ function AiConfigCard({
           {channel === "USER_KEY"
             ? "该配置按用户单独保存，适合接入你自己的服务商密钥。"
             : "该配置按用户单独保存，适合直接复用 AstrBot 中已有的模型能力。"}
+          <br />
+          测试基于你当前表单中的输入；如果测试失败，当前已保存并生效的旧配置不会被覆盖。
         </p>
 
         <Button type="button" onClick={() => void onSave()} disabled={saving}>
           {saving ? (
             <>
               <LoaderCircle className="size-4 animate-spin" />
-              保存中
+              处理中
             </>
+          ) : formState.isEnabled ? (
+            "测试并保存"
           ) : (
-            "保存配置"
+            "保存草稿"
           )}
         </Button>
       </div>
@@ -224,6 +258,9 @@ export function SettingsPage({ session }: SettingsPageProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [savingChannel, setSavingChannel] = useState<WebAiChannel | null>(null);
+  const [channelNotices, setChannelNotices] = useState<
+    Partial<Record<Exclude<WebAiChannel, "PUBLIC_POOL">, ChannelNoticeState>>
+  >({});
   const [userKeyForm, setUserKeyForm] = useState<AiBindingFormState>(() =>
     createAiBindingFormState()
   );
@@ -283,14 +320,49 @@ export function SettingsPage({ session }: SettingsPageProps) {
   async function handleSaveChannel(channel: Exclude<WebAiChannel, "PUBLIC_POOL">): Promise<void> {
     const formState = channel === "USER_KEY" ? userKeyForm : astrbotForm;
     const binding = bindingMap.get(channel) ?? null;
+    const payload = buildAiBindingPayload(channel, formState, binding);
 
     try {
       setSavingChannel(channel);
-      await upsertAiBinding(session, buildAiBindingPayload(channel, formState, binding));
-      setNotice({
-        tone: "success",
-        message: channel === "USER_KEY" ? "自备厂商配置已保存。" : "AstrBot 配置已保存。"
-      });
+      setChannelNotices((current) => ({
+        ...current,
+        [channel]: undefined
+      }));
+      if (payload.isEnabled) {
+        const testResult = await testAiBinding(session, payload);
+        if (!testResult.success) {
+          setChannelNotices((current) => ({
+            ...current,
+            [channel]: {
+              tone: "error",
+              message: `连通性测试未通过：${testResult.message}`,
+              detail: binding
+                ? "测试的是你当前编辑中的草稿配置。由于未保存，系统仍会继续使用上一份已保存配置，所以聊天可能依然正常。"
+                : "当前还没有已保存配置。请先修正表单中的地址、模型或密钥后再测试。"
+            }
+          }));
+          return;
+        }
+      }
+
+      await upsertAiBinding(session, payload);
+      setChannelNotices((current) => ({
+        ...current,
+        [channel]: {
+          tone: "success",
+          message:
+            channel === "USER_KEY"
+              ? payload.isEnabled
+                ? "自备厂商连通性测试通过，配置已保存。"
+                : "自备厂商配置草稿已保存。"
+              : payload.isEnabled
+                ? "AstrBot 连通性测试通过，配置已保存。"
+                : "AstrBot 配置草稿已保存。",
+          detail: payload.isEnabled
+            ? "之后 AI 助手会使用这份刚保存的配置。"
+            : "当前只是保存草稿，未启用时不会参与实际聊天。"
+        }
+      }));
       if (channel === "USER_KEY") {
         setUserKeyForm((current) => ({
           ...current,
@@ -304,10 +376,13 @@ export function SettingsPage({ session }: SettingsPageProps) {
       }
       await loadBindings();
     } catch (error) {
-      setNotice({
-        tone: "error",
-        message: error instanceof Error ? error.message : "AI 配置保存失败"
-      });
+      setChannelNotices((current) => ({
+        ...current,
+        [channel]: {
+          tone: "error",
+          message: error instanceof Error ? error.message : "AI 配置保存失败"
+        }
+      }));
     } finally {
       setSavingChannel(null);
     }
@@ -323,11 +398,15 @@ export function SettingsPage({ session }: SettingsPageProps) {
               系统设置
             </div>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
-              把配置和功能页面彻底拆开
+              统一管理 AI 配置与系统选项
             </h1>
             <p className="mt-2 text-sm leading-7 text-muted-foreground">
-              AI 问答在独立的 AI 助手页面中使用，渠道配置统一维护在这里，不再悬挂在任务页右侧。
+              你可以在这里维护自备厂商、AstrBot、公共 AI 的使用状态，后续也会扩展提醒偏好、
+              界面设置与存储信息等系统能力。
             </p>
+            <div className="mt-3 inline-flex items-center rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground">
+              TodoList v{TODOLIST_VERSION}
+            </div>
           </div>
 
           <Button
@@ -396,6 +475,7 @@ export function SettingsPage({ session }: SettingsPageProps) {
               onSave={() => handleSaveChannel("USER_KEY")}
               saving={savingChannel === "USER_KEY"}
               binding={bindingMap.get("USER_KEY") ?? null}
+              notice={channelNotices.USER_KEY ?? null}
             />
 
             <AiConfigCard
@@ -408,6 +488,7 @@ export function SettingsPage({ session }: SettingsPageProps) {
               onSave={() => handleSaveChannel("ASTRBOT")}
               saving={savingChannel === "ASTRBOT"}
               binding={bindingMap.get("ASTRBOT") ?? null}
+              notice={channelNotices.ASTRBOT ?? null}
             />
 
             <section className="rounded-[2rem] border border-border/70 bg-card/92 p-5 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.55)]">

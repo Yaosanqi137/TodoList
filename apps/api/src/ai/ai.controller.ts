@@ -15,7 +15,8 @@ import {
   AiChatResponse,
   AiService,
   ListAiBindingsResponse,
-  ListAiUsageLogsResponse
+  ListAiUsageLogsResponse,
+  TestAiBindingResponse
 } from "./ai.service";
 
 @Controller("ai")
@@ -43,6 +44,14 @@ export class AiController {
     @Body() body: UpsertAiProviderBindingDto
   ) {
     return this.aiService.upsertBinding(this.resolveUserId(userIdHeader), body);
+  }
+
+  @Post("bindings/test")
+  async testBinding(
+    @Headers("x-user-id") userIdHeader: string | string[] | undefined,
+    @Body() body: UpsertAiProviderBindingDto
+  ): Promise<TestAiBindingResponse> {
+    return this.aiService.testBinding(this.resolveUserId(userIdHeader), body);
   }
 
   @Post("chat")
