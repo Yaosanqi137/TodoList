@@ -1,4 +1,11 @@
-import { BadGatewayException, BadRequestException, Injectable, Logger } from "@nestjs/common";
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger
+} from "@nestjs/common";
 import {
   AiChannel,
   AiUsageLog,
@@ -10,6 +17,7 @@ import {
 } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { DataEncryptionService } from "../security/data-encryption.service";
+import { AiRateLimitService } from "./ai-rate-limit.service";
 import { AiProviderRegistryService } from "./ai-provider-registry.service";
 import { AiChatDto } from "./dto/ai-chat.dto";
 import { ListAiUsageLogsQueryDto } from "./dto/list-ai-usage-logs-query.dto";
@@ -105,7 +113,8 @@ export class AiService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly aiProviderRegistryService: AiProviderRegistryService,
-    private readonly dataEncryptionService: DataEncryptionService
+    private readonly dataEncryptionService: DataEncryptionService,
+    private readonly aiRateLimitService: AiRateLimitService
   ) {}
 
   async listBindings(userId: string): Promise<ListAiBindingsResponse> {
@@ -242,7 +251,26 @@ export class AiService {
     return this.serializeBinding(result);
   }
 
-  async chat(userId: string, dto: AiChatDto): Promise<AiChatResponse> {
+  async chat(
+    userId: string,
+    dto: AiChatDto,
+    clientIp: string | null = null
+  ): Promise<AiChatResponse> {
+    const rateLimitResult = this.aiRateLimitService.consume(userId, clientIp);
+    if (!rateLimitResult.allowed) {
+      throw new HttpException(
+        {
+          message: "AI 请求过于频繁，请稍后再试",
+          code: "AI_RATE_LIMITED",
+          dimension: rateLimitResult.reason === "USER" ? "user" : "ip",
+          retryAfterMs: rateLimitResult.retryAfterMs,
+          limit: rateLimitResult.limit,
+          windowMs: rateLimitResult.windowMs
+        },
+        HttpStatus.TOO_MANY_REQUESTS
+      );
+    }
+
     const attempts: AiRouteAttempt[] = [];
     const plan = await this.buildRoutePlan(userId, dto.channel ?? null);
     const promptMessage = await this.buildPromptMessage(userId, dto.message, dto.localTasks ?? []);
