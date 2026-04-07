@@ -1,7 +1,0 @@
-node_modules
-.turbo
-.idea
-dist
-build
-coverage
-*.png
