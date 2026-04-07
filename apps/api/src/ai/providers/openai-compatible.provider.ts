@@ -122,6 +122,20 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
   }
 
   private extractAssistantText(payload: unknown): string {
+    const chatCompletionText = this.extractChatCompletionText(payload);
+    if (chatCompletionText) {
+      return chatCompletionText;
+    }
+
+    const responsesText = this.extractResponsesApiText(payload);
+    if (responsesText) {
+      return responsesText;
+    }
+
+    return "";
+  }
+
+  private extractChatCompletionText(payload: unknown): string {
     if (!this.isRecord(payload)) {
       return "";
     }
@@ -137,11 +151,49 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
     }
 
     const message = firstChoice["message"];
-    if (!this.isRecord(message)) {
+    if (this.isRecord(message)) {
+      const messageContent = this.extractMessageContent(message["content"]);
+      if (messageContent) {
+        return messageContent;
+      }
+    }
+
+    if (typeof firstChoice["text"] === "string") {
+      return firstChoice["text"];
+    }
+
+    return "";
+  }
+
+  private extractResponsesApiText(payload: unknown): string {
+    if (!this.isRecord(payload)) {
       return "";
     }
 
-    return this.extractMessageContent(message["content"]);
+    if (typeof payload["output_text"] === "string") {
+      return payload["output_text"];
+    }
+
+    const output = payload["output"];
+    if (!Array.isArray(output)) {
+      return "";
+    }
+
+    return output
+      .map((item) => {
+        if (!this.isRecord(item)) {
+          return "";
+        }
+
+        if (typeof item["text"] === "string") {
+          return item["text"];
+        }
+
+        return this.extractMessageContent(item["content"]);
+      })
+      .filter((item) => item.length > 0)
+      .join("\n")
+      .trim();
   }
 
   private extractMessageContent(content: unknown): string {
@@ -154,19 +206,34 @@ export class OpenAiCompatibleProvider implements AiChannelExecutor {
     }
 
     return content
-      .map((item) => {
-        if (!this.isRecord(item)) {
-          return "";
-        }
-
-        if (typeof item["text"] === "string") {
-          return item["text"];
-        }
-
-        return "";
-      })
+      .map((item) => this.extractContentPartText(item))
       .filter((item) => item.length > 0)
-      .join("\n");
+      .join("\n")
+      .trim();
+  }
+
+  private extractContentPartText(item: unknown): string {
+    if (!this.isRecord(item)) {
+      return "";
+    }
+
+    if (typeof item["text"] === "string") {
+      return item["text"];
+    }
+
+    if (this.isRecord(item["text"]) && typeof item["text"]["value"] === "string") {
+      return item["text"]["value"];
+    }
+
+    if (typeof item["content"] === "string") {
+      return item["content"];
+    }
+
+    if (this.isRecord(item["content"]) && typeof item["content"]["text"] === "string") {
+      return item["content"]["text"];
+    }
+
+    return "";
   }
 
   private extractModel(payload: unknown): string | null {
