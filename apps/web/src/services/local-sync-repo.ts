@@ -1,19 +1,25 @@
-import {
+﻿import {
   localDb,
   type LocalOpLogRecord,
   type LocalSyncInboxRecord,
   type LocalSyncStateRecord
 } from "@/services/local-db";
+import {
+  decryptOpLogRecord,
+  decryptSyncInboxRecord,
+  encryptSyncInboxRecord
+} from "@/services/local-sensitive-codec";
 import type { SyncPullItem } from "@/services/sync-api";
 
 export const MAX_SYNC_RETRY_COUNT = 5;
 
 export async function listPendingSyncOperations(limit = 20): Promise<LocalOpLogRecord[]> {
   const records = await localDb.opLogs.orderBy("clientTs").toArray();
-
-  return records
+  const pendingRecords = records
     .filter((record) => record.syncedAt === null && record.retryCount < MAX_SYNC_RETRY_COUNT)
     .slice(0, limit);
+
+  return Promise.all(pendingRecords.map((record) => decryptOpLogRecord(record)));
 }
 
 export async function countPendingSyncOperations(): Promise<number> {
@@ -100,19 +106,23 @@ export async function enqueueRemoteSyncOperations(
   }
 
   const receivedAt = Date.now();
-  const records: LocalSyncInboxRecord[] = operations.map((operation) => ({
-    opId: operation.opId,
-    userId,
-    entityId: operation.entityId,
-    entityType: operation.entityType,
-    action: operation.action,
-    payload: operation.payload,
-    clientTs: operation.clientTs,
-    deviceId: operation.deviceId,
-    serverTs: new Date(operation.serverTs).getTime(),
-    receivedAt,
-    appliedAt: null
-  }));
+  const records = await Promise.all(
+    operations.map(async (operation) =>
+      encryptSyncInboxRecord({
+        opId: operation.opId,
+        userId,
+        entityId: operation.entityId,
+        entityType: operation.entityType,
+        action: operation.action,
+        payload: operation.payload,
+        clientTs: operation.clientTs,
+        deviceId: operation.deviceId,
+        serverTs: new Date(operation.serverTs).getTime(),
+        receivedAt,
+        appliedAt: null
+      })
+    )
+  );
 
   await localDb.syncInbox.bulkPut(records);
   return records.length;
@@ -123,8 +133,7 @@ export async function listPendingRemoteOperations(
   limit = 100
 ): Promise<LocalSyncInboxRecord[]> {
   const records = await localDb.syncInbox.where("userId").equals(userId).toArray();
-
-  return records
+  const pendingRecords = records
     .filter((record) => record.appliedAt === null)
     .sort((left, right) => {
       if (left.serverTs !== right.serverTs) {
@@ -138,6 +147,8 @@ export async function listPendingRemoteOperations(
       return left.opId.localeCompare(right.opId);
     })
     .slice(0, limit);
+
+  return Promise.all(pendingRecords.map((record) => decryptSyncInboxRecord(record)));
 }
 
 export async function markRemoteOperationsApplied(

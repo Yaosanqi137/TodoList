@@ -1,4 +1,4 @@
-﻿import { localDb } from "@/services/local-db";
+﻿import { listLocalTasksByUser } from "@/services/local-task-repo";
 
 export const DEFAULT_CLOUD_QUOTA_BYTES = 100 * 1024 * 1024;
 
@@ -18,13 +18,9 @@ function measureTextBytes(value: string | null): number {
 }
 
 export async function getStorageQuotaSnapshot(userId: string): Promise<StorageQuotaSnapshot> {
-  const tasks = await localDb.tasks.where("userId").equals(userId).toArray();
+  const tasks = await listLocalTasksByUser(userId);
 
   const usedBytes = tasks.reduce((total, task) => {
-    if (task.deletedAt !== null) {
-      return total;
-    }
-
     return (
       total +
       measureTextBytes(task.title) +

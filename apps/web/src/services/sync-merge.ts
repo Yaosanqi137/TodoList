@@ -1,4 +1,4 @@
-import {
+﻿import {
   localDb,
   type LocalSyncInboxRecord,
   type LocalTaskPriority,
@@ -6,6 +6,11 @@ import {
   type LocalTaskStatus
 } from "@/services/local-db";
 import { listPendingRemoteOperations } from "@/services/local-sync-repo";
+import {
+  decryptTaskRecord,
+  encryptTaskRecord,
+  shouldEncryptTaskRecord
+} from "@/services/local-sensitive-codec";
 
 const TASK_PRIORITY_VALUES: LocalTaskPriority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const TASK_STATUS_VALUES: LocalTaskStatus[] = ["TODO", "IN_PROGRESS", "DONE", "ARCHIVED"];
@@ -246,11 +251,14 @@ export async function applyPendingRemoteOperations(userId: string): Promise<numb
         continue;
       }
 
-      const currentTask = await localDb.tasks.get(operation.entityId);
+      const storedTask = await localDb.tasks.get(operation.entityId);
+      const currentTask = storedTask ? await decryptTaskRecord(storedTask) : undefined;
       const incomingTask = buildIncomingTaskRecord(operation, currentTask);
 
       if (shouldApplyIncomingTask(currentTask, incomingTask, operation)) {
-        await localDb.tasks.put(incomingTask);
+        await localDb.tasks.put(await encryptTaskRecord(incomingTask));
+      } else if (storedTask && currentTask && shouldEncryptTaskRecord(storedTask)) {
+        await localDb.tasks.put(await encryptTaskRecord(currentTask));
       }
 
       await localDb.syncInbox.update(operation.opId, { appliedAt });

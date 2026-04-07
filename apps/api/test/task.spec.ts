@@ -1,7 +1,9 @@
 import request from "supertest";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { DataEncryptionService } from "../src/security/data-encryption.service";
 import { TaskController } from "../src/task/task.controller";
 import { TaskService } from "../src/task/task.service";
 import { TaskPriority, TaskStatus } from "../generated/prisma/client";
@@ -355,6 +357,10 @@ class InMemoryPrismaService {
     return runner(this);
   }
 
+  getRawTaskById(taskId: string): TaskRecord | undefined {
+    return this.tasks.find((task) => task.id === taskId);
+  }
+
   private toTaskWithTags(
     task: TaskRecord
   ): TaskRecord & { taskTags: Array<{ tag: { name: string } }> } {
@@ -390,7 +396,15 @@ describe("TaskController (integration)", () => {
       controllers: [TaskController],
       providers: [
         TaskService,
-        { provide: PrismaService, useValue: prismaService as unknown as PrismaService }
+        DataEncryptionService,
+        { provide: PrismaService, useValue: prismaService as unknown as PrismaService },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string) =>
+              key === "DATA_ENCRYPTION_SECRET" ? "test-data-encryption-secret" : undefined
+          }
+        }
       ]
     }).compile();
 
@@ -425,6 +439,9 @@ describe("TaskController (integration)", () => {
     expect(createResponse.body.id).toBeDefined();
     expect(createResponse.body.tags).toEqual(["工作", "会议"]);
     const taskId = createResponse.body.id as string;
+    const rawCreatedTask = prismaService.getRawTaskById(taskId);
+    expect(rawCreatedTask?.title).not.toBe("准备周会");
+    expect(rawCreatedTask?.contentText).not.toBe("整理本周进度");
 
     const listResponse = await request(app.getHttpServer())
       .get("/tasks")

@@ -6,6 +6,11 @@
   type LocalTaskStatus,
   type SyncActionType
 } from "@/services/local-db";
+import {
+  decryptTaskRecord,
+  encryptOpLogRecord,
+  encryptTaskRecord
+} from "@/services/local-sensitive-codec";
 
 const DEVICE_ID_STORAGE_KEY = "todolist.web.device-id";
 
@@ -83,7 +88,8 @@ function createSyncTaskPayload(payload: SyncTaskPayload): string {
 
 export async function listLocalTasksByUser(userId: string): Promise<LocalTaskRecord[]> {
   const tasks = await localDb.tasks.where("userId").equals(userId).toArray();
-  return tasks
+  const decryptedTasks = await Promise.all(tasks.map((task) => decryptTaskRecord(task)));
+  return decryptedTasks
     .filter((task) => task.deletedAt === null)
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
@@ -94,7 +100,7 @@ export async function getLocalTaskById(id: string): Promise<LocalTaskRecord | un
     return undefined;
   }
 
-  return task;
+  return decryptTaskRecord(task);
 }
 
 export async function createLocalTask(input: CreateLocalTaskInput): Promise<LocalTaskRecord> {
@@ -134,8 +140,8 @@ export async function createLocalTask(input: CreateLocalTaskInput): Promise<Loca
   );
 
   await localDb.transaction("rw", localDb.tasks, localDb.opLogs, async () => {
-    await localDb.tasks.add(task);
-    await localDb.opLogs.add(opLog);
+    await localDb.tasks.add(await encryptTaskRecord(task));
+    await localDb.opLogs.add(await encryptOpLogRecord(opLog));
   });
 
   return task;
@@ -178,8 +184,8 @@ export async function updateLocalTask(
   );
 
   await localDb.transaction("rw", localDb.tasks, localDb.opLogs, async () => {
-    await localDb.tasks.put(nextTask);
-    await localDb.opLogs.add(opLog);
+    await localDb.tasks.put(await encryptTaskRecord(nextTask));
+    await localDb.opLogs.add(await encryptOpLogRecord(opLog));
   });
 
   return nextTask;
@@ -211,8 +217,8 @@ export async function deleteLocalTask(id: string): Promise<boolean> {
   );
 
   await localDb.transaction("rw", localDb.tasks, localDb.opLogs, async () => {
-    await localDb.tasks.put(nextTask);
-    await localDb.opLogs.add(opLog);
+    await localDb.tasks.put(await encryptTaskRecord(nextTask));
+    await localDb.opLogs.add(await encryptOpLogRecord(opLog));
   });
 
   return true;

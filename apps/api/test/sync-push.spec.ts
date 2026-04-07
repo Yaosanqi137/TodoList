@@ -1,7 +1,9 @@
 import request from "supertest";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Test, TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { DataEncryptionService } from "../src/security/data-encryption.service";
 import { SyncController } from "../src/sync/sync.controller";
 import { SyncService } from "../src/sync/sync.service";
 
@@ -159,6 +161,10 @@ class InMemoryPrismaService {
     return this.syncOperations.length;
   }
 
+  getRawOperationById(opId: string): SyncOperationRecord | undefined {
+    return this.syncOperations.find((operation) => operation.opId === opId);
+  }
+
   seedOperations(records: Array<Omit<SyncOperationRecord, "id">>): void {
     for (const record of records) {
       this.syncOperations.push({
@@ -196,7 +202,18 @@ describe("SyncController (integration)", () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [SyncController],
-      providers: [SyncService, { provide: PrismaService, useValue: prismaService }]
+      providers: [
+        SyncService,
+        DataEncryptionService,
+        { provide: PrismaService, useValue: prismaService },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string) =>
+              key === "DATA_ENCRYPTION_SECRET" ? "test-data-encryption-secret" : undefined
+          }
+        }
+      ]
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -258,6 +275,9 @@ describe("SyncController (integration)", () => {
       })
     ]);
     expect(prismaService.getOperationCount()).toBe(2);
+    expect(prismaService.getRawOperationById("op-create-1")?.payload).not.toBe(
+      '{"title":"浠诲姟涓€"}'
+    );
 
     const secondResponse = await request(app.getHttpServer())
       .post("/sync/push")

@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, NotFoundException, PayloadTooLargeException } from "@nestjs/common";
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  PayloadTooLargeException
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { AttachmentType } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { DataEncryptionService } from "../security/data-encryption.service";
 import { CompleteAttachmentDto } from "./dto/complete-attachment.dto";
 import { PresignAttachmentDto } from "./dto/presign-attachment.dto";
 
@@ -25,9 +31,7 @@ export type PresignAttachmentResponse = {
     usedBytes: string;
     remainingBytes: string;
   };
-  headers: {
-    "Content-Type": string;
-  };
+  headers: Record<string, string>;
 };
 
 export type AttachmentResponse = {
@@ -52,7 +56,8 @@ export class AttachmentService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly prismaService: PrismaService
+    private readonly prismaService: PrismaService,
+    private readonly dataEncryptionService: DataEncryptionService
   ) {}
 
   async presignAttachment(
@@ -67,15 +72,17 @@ export class AttachmentService {
     }
 
     const bucket = this.getDefaultBucket();
-    const objectKey = this.generateObjectKey(userId, body.fileName);
+    const objectKey = this.generateObjectKey(body.fileName);
     const objectUrl = this.resolveObjectUrl(bucket, objectKey);
     const expiresInSeconds = this.getPresignExpiresInSeconds();
+    const serverSideEncryption = this.getServerSideEncryptionMode();
 
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: objectKey,
       ContentType: body.mimeType,
-      ContentLength: body.fileSize
+      ContentLength: body.fileSize,
+      ServerSideEncryption: serverSideEncryption
     });
 
     const uploadUrl = await getSignedUrl(this.getS3Client(), command, {
@@ -94,9 +101,7 @@ export class AttachmentService {
         usedBytes: quotaInfo.usedBytes.toString(),
         remainingBytes: (quotaInfo.totalBytes - quotaInfo.usedBytes).toString()
       },
-      headers: {
-        "Content-Type": body.mimeType
-      }
+      headers: this.buildUploadHeaders(body.mimeType, serverSideEncryption)
     };
   }
 
@@ -139,14 +144,14 @@ export class AttachmentService {
           userId,
           taskId: body.taskId ?? null,
           type: body.type ?? this.resolveAttachmentType(body.mimeType),
-          url: objectUrl,
+          url: this.encryptRequiredString(objectUrl),
           mimeType: body.mimeType,
-          fileName: body.fileName,
+          fileName: this.encryptNullableString(body.fileName),
           fileSize: body.fileSize,
           width: body.width ?? null,
           height: body.height ?? null,
           durationMs: body.durationMs ?? null,
-          checksum: body.checksum ?? null
+          checksum: this.encryptNullableString(body.checksum)
         }
       });
     });
@@ -155,14 +160,14 @@ export class AttachmentService {
       id: attachment.id,
       taskId: attachment.taskId,
       type: attachment.type,
-      url: attachment.url,
+      url: this.readDecryptedString(attachment.url) ?? objectUrl,
       mimeType: attachment.mimeType,
-      fileName: attachment.fileName,
+      fileName: this.readDecryptedString(attachment.fileName),
       fileSize: attachment.fileSize,
       width: attachment.width,
       height: attachment.height,
       durationMs: attachment.durationMs,
-      checksum: attachment.checksum,
+      checksum: this.readDecryptedString(attachment.checksum),
       createdAt: attachment.createdAt.toISOString(),
       updatedAt: attachment.updatedAt.toISOString()
     };
@@ -204,10 +209,9 @@ export class AttachmentService {
     return Math.min(configValue, 604800);
   }
 
-  private generateObjectKey(userId: string, fileName: string): string {
-    const safeFileName = fileName.replace(/[^\w.-]+/g, "_");
+  private generateObjectKey(fileName: string): string {
     const datePrefix = new Date().toISOString().slice(0, 10);
-    return `${userId}/${datePrefix}/${randomUUID()}-${safeFileName}`;
+    return `attachments/${datePrefix}/${randomUUID()}${this.extractFileExtension(fileName)}`;
   }
 
   private resolveObjectUrl(bucket: string, objectKey: string): string {
@@ -230,6 +234,37 @@ export class AttachmentService {
     }
 
     return AttachmentType.FILE;
+  }
+
+  private buildUploadHeaders(
+    mimeType: string,
+    serverSideEncryption: "AES256" | undefined
+  ): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": mimeType
+    };
+
+    if (serverSideEncryption) {
+      headers["x-amz-server-side-encryption"] = serverSideEncryption;
+    }
+
+    return headers;
+  }
+
+  private getServerSideEncryptionMode(): "AES256" | undefined {
+    const configValue =
+      this.configService.get<string>("S3_SERVER_SIDE_ENCRYPTION")?.trim().toUpperCase() ?? "AES256";
+
+    if (configValue === "NONE" || configValue === "DISABLED") {
+      return undefined;
+    }
+
+    return "AES256";
+  }
+
+  private extractFileExtension(fileName: string): string {
+    const match = /\.[a-zA-Z0-9]{1,16}$/.exec(fileName);
+    return match?.[0]?.toLowerCase() ?? "";
   }
 
   private async ensureTaskOwnership(userId: string, taskId: string): Promise<void> {
@@ -278,5 +313,23 @@ export class AttachmentService {
     if (uploadBytes > totalBytes || usedBytes + uploadBytes > totalBytes) {
       throw new PayloadTooLargeException("存储配额不足");
     }
+  }
+
+  private encryptRequiredString(value: string): string {
+    const encryptedValue = this.dataEncryptionService.encryptString(value);
+    if (!encryptedValue) {
+      throw new InternalServerErrorException("附件元数据加密失败");
+    }
+
+    return encryptedValue;
+  }
+
+  private encryptNullableString(value: string | null | undefined): string | null | undefined {
+    return this.dataEncryptionService.encryptString(value);
+  }
+
+  private readDecryptedString(value: string | null): string | null {
+    const decryptedValue = this.dataEncryptionService.decryptString(value);
+    return typeof decryptedValue === "string" ? decryptedValue : null;
   }
 }

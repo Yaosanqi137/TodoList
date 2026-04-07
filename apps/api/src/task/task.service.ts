@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { Prisma, TaskPriority, TaskStatus } from "../../generated/prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { DataEncryptionService } from "../security/data-encryption.service";
 import { CreateTaskDto } from "./dto/create-task.dto";
 import { ListTasksQueryDto, TaskSortBy, TaskSortOrder } from "./dto/list-tasks-query.dto";
 import { UpdateTaskDto } from "./dto/update-task.dto";
@@ -43,15 +44,47 @@ export type ListTasksResponse = {
 
 @Injectable()
 export class TaskService {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly dataEncryptionService: DataEncryptionService
+  ) {}
 
   async listTasks(userId: string, query: ListTasksQueryDto): Promise<ListTasksResponse> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
+    const keyword = query.keyword?.trim() ?? "";
 
-    const where = this.buildWhereInput(userId, query);
+    const where = this.buildWhereInput(userId, query, keyword.length === 0);
     const orderBy = this.buildOrderByInput(query);
+
+    if (keyword.length > 0) {
+      const items = await this.prismaService.task.findMany({
+        where,
+        orderBy,
+        include: {
+          taskTags: {
+            include: {
+              tag: {
+                select: {
+                  name: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      const serializedItems = items.map((item: TaskEntity) => this.serializeTask(item));
+      const filteredItems = serializedItems.filter((item) => this.matchesKeyword(item, keyword));
+
+      return {
+        items: filteredItems.slice(skip, skip + pageSize),
+        page,
+        pageSize,
+        total: filteredItems.length
+      };
+    }
 
     const [items, total] = await Promise.all([
       this.prismaService.task.findMany({
@@ -112,15 +145,18 @@ export class TaskService {
     const tagNames = this.normalizeTagNames(body.tagNames);
     const nextStatus = body.status ?? TaskStatus.TODO;
     const contentJson =
-      body.contentJson !== undefined ? (body.contentJson as Prisma.InputJsonValue) : undefined;
+      body.contentJson !== undefined
+        ? ((this.dataEncryptionService.encryptJson(body.contentJson as Prisma.InputJsonValue) ??
+            Prisma.JsonNull) as Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput)
+        : undefined;
 
     const task = await this.prismaService.$transaction(async (tx) => {
       const createdTask = await tx.task.create({
         data: {
           userId,
-          title: body.title,
+          title: this.encryptRequiredString(body.title),
           contentJson,
-          contentText: body.contentText ?? null,
+          contentText: this.encryptNullableString(body.contentText),
           priority: body.priority ?? TaskPriority.MEDIUM,
           status: nextStatus,
           ddl: body.ddl ? new Date(body.ddl) : null,
@@ -172,13 +208,15 @@ export class TaskService {
     };
 
     if (body.title !== undefined) {
-      data.title = body.title;
+      data.title = this.encryptRequiredString(body.title);
     }
     if (body.contentJson !== undefined) {
-      data.contentJson = body.contentJson as Prisma.InputJsonValue;
+      data.contentJson = (this.dataEncryptionService.encryptJson(
+        body.contentJson as Prisma.InputJsonValue
+      ) ?? Prisma.JsonNull) as Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
     }
     if (body.contentText !== undefined) {
-      data.contentText = body.contentText;
+      data.contentText = this.encryptNullableString(body.contentText);
     }
     if (body.priority !== undefined) {
       data.priority = body.priority;
@@ -242,7 +280,11 @@ export class TaskService {
     return { success: true };
   }
 
-  private buildWhereInput(userId: string, query: ListTasksQueryDto): Prisma.TaskWhereInput {
+  private buildWhereInput(
+    userId: string,
+    query: ListTasksQueryDto,
+    includeKeyword: boolean
+  ): Prisma.TaskWhereInput {
     const where: Prisma.TaskWhereInput = {
       userId
     };
@@ -267,7 +309,7 @@ export class TaskService {
       };
     }
 
-    if (query.keyword !== undefined && query.keyword.length > 0) {
+    if (includeKeyword && query.keyword !== undefined && query.keyword.length > 0) {
       where.OR = [
         {
           title: {
@@ -374,9 +416,9 @@ export class TaskService {
   private serializeTask(task: TaskEntity): TaskResponse {
     return {
       id: task.id,
-      title: task.title,
-      contentJson: task.contentJson,
-      contentText: task.contentText,
+      title: this.readDecryptedString(task.title) ?? "未命名任务",
+      contentJson: this.dataEncryptionService.decryptJson(task.contentJson),
+      contentText: this.readDecryptedString(task.contentText),
       priority: task.priority,
       status: task.status,
       ddl: task.ddl?.toISOString() ?? null,
@@ -386,5 +428,31 @@ export class TaskService {
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString()
     };
+  }
+
+  private encryptRequiredString(value: string): string {
+    const encryptedValue = this.dataEncryptionService.encryptString(value);
+    if (!encryptedValue) {
+      throw new InternalServerErrorException("任务字段加密失败");
+    }
+
+    return encryptedValue;
+  }
+
+  private encryptNullableString(value: string | null | undefined): string | null | undefined {
+    return this.dataEncryptionService.encryptString(value);
+  }
+
+  private readDecryptedString(value: string | null): string | null {
+    const decryptedValue = this.dataEncryptionService.decryptString(value);
+    return typeof decryptedValue === "string" ? decryptedValue : null;
+  }
+
+  private matchesKeyword(task: TaskResponse, keyword: string): boolean {
+    const lowerKeyword = keyword.toLocaleLowerCase();
+    return (
+      task.title.toLocaleLowerCase().includes(lowerKeyword) ||
+      task.contentText?.toLocaleLowerCase().includes(lowerKeyword) === true
+    );
   }
 }
