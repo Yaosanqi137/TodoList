@@ -1,0 +1,77 @@
+﻿@import "@fontsource-variable/geist";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  height: 100%;
+  font-size: 120%;
+}
+
+:root {
+  --radius: 0.9rem;
+  --background: 246 100% 98%;
+  --foreground: 248 40% 18%;
+  --card: 0 0% 100%;
+  --border: 248 53% 89%;
+  --input: 248 48% 84%;
+  --ring: 246 53% 53%;
+  --primary: 246 53% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 250 70% 94%;
+  --secondary-foreground: 248 40% 25%;
+  --muted: 249 78% 95%;
+  --muted-foreground: 248 17% 45%;
+  --accent: 173 56% 66%;
+  --accent-foreground: 248 40% 25%;
+  --destructive: 343 40% 50%;
+  --destructive-foreground: 0 0% 100%;
+  color-scheme: light;
+  font-family: "Geist Variable", "Noto Sans SC", sans-serif;
+}
+
+.dark {
+  --background: 248 46% 10%;
+  --foreground: 240 44% 96%;
+  --card: 249 41% 15%;
+  --border: 249 24% 30%;
+  --input: 249 23% 28%;
+  --ring: 246 76% 68%;
+  --primary: 246 76% 68%;
+  --primary-foreground: 248 43% 12%;
+  --secondary: 249 30% 24%;
+  --secondary-foreground: 240 38% 92%;
+  --muted: 249 29% 20%;
+  --muted-foreground: 247 16% 74%;
+  --accent: 173 52% 58%;
+  --accent-foreground: 248 43% 12%;
+  --destructive: 343 64% 58%;
+  --destructive-foreground: 0 0% 100%;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      1100px 620px at -12% -25%,
+      hsl(var(--primary) / 0.2),
+      hsl(var(--primary) / 0) 60%
+    ),
+    radial-gradient(
+      900px 540px at 112% -14%,
+      hsl(var(--accent) / 0.35),
+      hsl(var(--accent) / 0) 58%
+    ),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  transition:
+    background-color 220ms ease,
+    color 220ms ease;
+}
+
+#root {
+  height: 100%;
+}

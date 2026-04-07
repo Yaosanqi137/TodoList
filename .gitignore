@@ -1,2 +1,6 @@
 develop.md
+node_modules/
+.turbo/
 .idea/
+.eslintcache
+/.husky/_
