@@ -46,9 +46,6 @@ export class AstrbotProvider implements AiChannelExecutor {
           session_id: input.sessionId ?? undefined,
           message: input.message,
           enable_streaming: false,
-          config_id: candidate.configId ?? undefined,
-          config_name: candidate.configName ?? undefined,
-          selected_provider: candidate.providerName || undefined,
           selected_model: candidate.model ?? undefined
         }),
         signal: AbortSignal.timeout(30000)
