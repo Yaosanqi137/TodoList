@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { resolve } from "node:path";
 import { AiModule } from "./ai/ai.module";
 import { AttachmentModule } from "./attachment/attachment.module";
 import { AuthModule } from "./auth/auth.module";
@@ -12,7 +13,7 @@ import { TaskModule } from "./task/task.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ".env"
+      envFilePath: [resolve(__dirname, "../.env"), ".env"]
     }),
     PrismaModule,
     SecurityModule,
